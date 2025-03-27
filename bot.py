@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from dotenv import load_dotenv
 from telegram import ParseMode
-from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext
+from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext, MessageHandler, Filters
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from solana.rpc.async_api import AsyncClient
 from solana.rpc.commitment import Commitment
@@ -192,8 +192,10 @@ def button_handler(update, context: CallbackContext):
     query.answer()
 
     if query.data == 'add_wallet':
+        # Store the user's state to indicate they're in the add wallet flow
+        context.user_data['state'] = 'waiting_for_wallet_address'
         query.message.reply_text(
-            'Please send the wallet address and name in format:\n/addwallet <address> <name>'
+            'Please send me the wallet address you want to track.'
         )
     elif query.data == 'remove_wallet':
         query.message.reply_text(
@@ -212,6 +214,22 @@ def button_handler(update, context: CallbackContext):
     elif query.data.startswith('track_sells_'):
         token_address = query.data.replace('track_sells_', '')
         handle_track_sells(update, context, token_address)
+
+def handle_message(update, context: CallbackContext):
+    # Check if user is in the add wallet flow
+    if context.user_data.get('state') == 'waiting_for_wallet_address':
+        # Store the wallet address and ask for the name
+        context.user_data['wallet_address'] = update.message.text
+        context.user_data['state'] = 'waiting_for_wallet_name'
+        update.message.reply_text('Please send me a name for this wallet.')
+    elif context.user_data.get('state') == 'waiting_for_wallet_name':
+        # Add the wallet with the provided name
+        wallet_address = context.user_data['wallet_address']
+        wallet_name = update.message.text
+        wallet_tracker.add_wallet(wallet_address, wallet_name)
+        update.message.reply_text(f'Added wallet {wallet_name} ({wallet_address})')
+        # Clear the user's state
+        context.user_data.clear()
 
 def add_wallet(update, context: CallbackContext):
     try:
@@ -375,6 +393,7 @@ def main():
     dispatcher.add_handler(CommandHandler("removewallet", remove_wallet))
     dispatcher.add_handler(CommandHandler("tracktoken", track_token))
     dispatcher.add_handler(CallbackQueryHandler(button_handler))
+    dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
 
     # Add web routes
     app.add_routes(routes)
