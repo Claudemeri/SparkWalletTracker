@@ -14,6 +14,7 @@ from solders.pubkey import Pubkey
 from solders.instruction import Instruction
 from solders.message import Message
 from aiohttp import web
+import threading
 
 # Load environment variables
 load_dotenv()
@@ -354,6 +355,13 @@ async def start_web_server():
     await site.start()
     print(f"Web server started on port {os.getenv('PORT', '8080')}")
 
+def run_async_tasks():
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(start_web_server())
+    loop.run_until_complete(check_transactions())
+    loop.run_forever()
+
 def main():
     # Create the Updater and pass it your bot's token
     updater = Updater(os.getenv('TELEGRAM_BOT_TOKEN'), use_context=True)
@@ -371,11 +379,9 @@ def main():
     # Add web routes
     app.add_routes(routes)
 
-    # Start the web server
-    asyncio.create_task(start_web_server())
-
-    # Start the transaction checker
-    asyncio.create_task(check_transactions())
+    # Start async tasks in a separate thread
+    async_thread = threading.Thread(target=run_async_tasks, daemon=True)
+    async_thread.start()
 
     # Start the bot
     updater.start_polling()
