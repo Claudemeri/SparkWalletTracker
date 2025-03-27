@@ -15,6 +15,8 @@ from solders.instruction import Instruction
 from solders.message import Message
 from aiohttp import web
 import threading
+import time
+from httpx import HTTPStatusError
 
 # Load environment variables
 load_dotenv()
@@ -34,6 +36,14 @@ RAYDIUM_PROGRAM_ID = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
 # Web server setup
 app = web.Application()
 routes = web.RouteTableDef()
+
+# Rate limiting settings
+RATE_LIMIT_DELAY = 0.2  # 200ms between requests
+MAX_RETRIES = 3
+RETRY_DELAY = 1  # 1 second between retries
+
+# Last request timestamp
+last_request_time = 0
 
 @routes.get('/')
 async def health_check(request):
@@ -304,14 +314,40 @@ def handle_track_sells(update, context: CallbackContext, token_address: str):
         reply_markup=reply_markup
     )
 
+async def rate_limited_request(func, *args, **kwargs):
+    """Execute a rate-limited RPC request with retries"""
+    global last_request_time
+    
+    for attempt in range(MAX_RETRIES):
+        try:
+            # Ensure minimum delay between requests
+            current_time = time.time()
+            time_since_last = current_time - last_request_time
+            if time_since_last < RATE_LIMIT_DELAY:
+                await asyncio.sleep(RATE_LIMIT_DELAY - time_since_last)
+            
+            # Make the request
+            last_request_time = time.time()
+            return await func(*args, **kwargs)
+            
+        except Exception as e:
+            if isinstance(e, HTTPStatusError) and e.response.status_code == 429:
+                if attempt < MAX_RETRIES - 1:  # Don't sleep on the last attempt
+                    await asyncio.sleep(RETRY_DELAY * (attempt + 1))  # Exponential backoff
+                    continue
+            raise e
+    
+    return None
+
 async def parse_transaction(signature: str, wallet_address: str) -> Optional[Transaction]:
     try:
-        # Get transaction details with max supported version
-        tx_response = await solana_client.get_transaction(
+        # Get transaction details with rate limiting
+        tx_response = await rate_limited_request(
+            solana_client.get_transaction,
             signature,
-            max_supported_transaction_version=0  # Support legacy and versioned transactions
+            max_supported_transaction_version=0
         )
-        if not tx_response.value:
+        if not tx_response or not tx_response.value:
             return None
 
         tx = tx_response.value
@@ -330,41 +366,46 @@ async def parse_transaction(signature: str, wallet_address: str) -> Optional[Tra
 
         # Parse transaction instructions
         for ix in message.instructions:
-            # Get program ID from account keys
-            program_id = str(message.account_keys[ix.program_id_index])
-            
-            # Check if it's a Jupiter or Raydium swap
-            if program_id in [JUPITER_PROGRAM_ID, RAYDIUM_PROGRAM_ID]:
-                # Get account indices from instruction
-                account_indices = ix.accounts
-                # Convert indices to actual account addresses
-                accounts = [str(message.account_keys[idx]) for idx in account_indices]
+            try:
+                # Get program ID from account keys
+                program_id = str(message.account_keys[ix.program_id_index])
                 
-                # Extract token addresses and amounts
-                # This is a simplified version - you'll need to implement the actual parsing
-                # based on the specific DEX program's instruction format
-                token_address = accounts[1] if len(accounts) > 1 else None  # Example: token account
-                if not token_address:
-                    continue
+                # Check if it's a Jupiter or Raydium swap
+                if program_id in [JUPITER_PROGRAM_ID, RAYDIUM_PROGRAM_ID]:
+                    # Get account indices from instruction
+                    account_indices = ix.accounts
+                    # Convert indices to actual account addresses
+                    accounts = [str(message.account_keys[idx]) for idx in account_indices]
+                    
+                    # Extract token addresses and amounts
+                    # This is a simplified version - you'll need to implement the actual parsing
+                    # based on the specific DEX program's instruction format
+                    token_address = accounts[1] if len(accounts) > 1 else None  # Example: token account
+                    if not token_address:
+                        continue
 
-                # Parse data as bytes
-                data_bytes = base58.b58decode(ix.data)
-                amount = float(int.from_bytes(data_bytes[1:9], 'little')) / 1e9 if len(data_bytes) >= 9 else 0
-                price = 1.0  # You'll need to implement price fetching
+                    # Parse data as bytes
+                    data_bytes = base58.b58decode(ix.data)
+                    amount = float(int.from_bytes(data_bytes[1:9], 'little')) / 1e9 if len(data_bytes) >= 9 else 0
+                    price = 1.0  # You'll need to implement price fetching
+                    
+                    # Convert wallet address to Pubkey for comparison
+                    wallet_pubkey = Pubkey.from_string(wallet_address)
+                    # Determine if it's a buy or sell by comparing the first account with wallet
+                    is_buy = accounts[0] == str(wallet_pubkey)
+                    
+                    return Transaction(
+                        signature=signature,
+                        timestamp=timestamp,
+                        token_address=token_address,
+                        amount=amount,
+                        price=price,
+                        is_buy=is_buy
+                    )
+            except (IndexError, ValueError) as e:
+                print(f"Error parsing instruction in transaction {signature}: {e}")
+                continue
                 
-                # Convert wallet address to Pubkey for comparison
-                wallet_pubkey = Pubkey.from_string(wallet_address)
-                # Determine if it's a buy or sell by comparing the first account with wallet
-                is_buy = accounts[0] == str(wallet_pubkey)
-                
-                return Transaction(
-                    signature=signature,
-                    timestamp=timestamp,
-                    token_address=token_address,
-                    amount=amount,
-                    price=price,
-                    is_buy=is_buy
-                )
     except ValueError as e:
         print(f"Error with address format in transaction {signature}: {e}")
     except AttributeError as e:
@@ -386,9 +427,13 @@ async def check_transactions():
                 # Convert string address to Pubkey
                 pubkey = Pubkey.from_string(address)
                 
-                # Get recent transactions
-                response = await solana_client.get_signatures_for_address(pubkey)
-                if response.value:
+                # Get recent transactions with rate limiting
+                response = await rate_limited_request(
+                    solana_client.get_signatures_for_address,
+                    pubkey
+                )
+                
+                if response and response.value:
                     for sig in response.value:
                         # Parse and store transaction
                         tx = await parse_transaction(sig.signature, address)
@@ -437,6 +482,9 @@ async def check_transactions():
                 print(f"Error with wallet address format {address}: {e}")
             except Exception as e:
                 print(f"Error checking transactions for {address}: {e}")
+
+            # Add a small delay between checking different wallets
+            await asyncio.sleep(RATE_LIMIT_DELAY)
 
         await asyncio.sleep(60)  # Check every minute
 
