@@ -80,22 +80,40 @@ class WalletTracker:
         self.min_buys_for_alert = 2   # minimum number of wallets that need to buy
 
     def load_wallets(self):
-        if os.path.exists(WALLETS_FILE):
-            with open(WALLETS_FILE, 'r') as f:
-                return json.load(f)
-        return {}
+        try:
+            if os.path.exists(WALLETS_FILE):
+                with open(WALLETS_FILE, 'r') as f:
+                    return json.load(f)
+            return {}
+        except json.JSONDecodeError:
+            print(f"Warning: {WALLETS_FILE} contains invalid JSON. Creating new file.")
+            with open(WALLETS_FILE, 'w') as f:
+                json.dump({}, f)
+            return {}
 
     def load_tracked_tokens(self):
-        if os.path.exists(TRACKED_TOKENS_FILE):
-            with open(TRACKED_TOKENS_FILE, 'r') as f:
-                return json.load(f)
-        return {}
+        try:
+            if os.path.exists(TRACKED_TOKENS_FILE):
+                with open(TRACKED_TOKENS_FILE, 'r') as f:
+                    return json.load(f)
+            return {}
+        except json.JSONDecodeError:
+            print(f"Warning: {TRACKED_TOKENS_FILE} contains invalid JSON. Creating new file.")
+            with open(TRACKED_TOKENS_FILE, 'w') as f:
+                json.dump({}, f)
+            return {}
 
     def load_transactions(self):
-        if os.path.exists(TRANSACTIONS_FILE):
-            with open(TRANSACTIONS_FILE, 'r') as f:
-                return json.load(f)
-        return {}
+        try:
+            if os.path.exists(TRANSACTIONS_FILE):
+                with open(TRANSACTIONS_FILE, 'r') as f:
+                    return json.load(f)
+            return {}
+        except json.JSONDecodeError:
+            print(f"Warning: {TRANSACTIONS_FILE} contains invalid JSON. Creating new file.")
+            with open(TRANSACTIONS_FILE, 'w') as f:
+                json.dump({}, f)
+            return {}
 
     def save_wallets(self):
         with open(WALLETS_FILE, 'w') as f:
