@@ -327,8 +327,10 @@ async def parse_transaction(signature: str, wallet_address: str) -> Optional[Tra
                 amount = float(ix.data[1:9]) / 1e9  # Example: amount in lamports
                 price = 1.0  # You'll need to implement price fetching
                 
-                # Determine if it's a buy or sell
-                is_buy = str(ix.accounts[0]) == wallet_address
+                # Convert wallet address to Pubkey for comparison
+                wallet_pubkey = Pubkey.from_string(wallet_address)
+                # Determine if it's a buy or sell by comparing the first account with wallet
+                is_buy = ix.accounts[0] == wallet_pubkey
                 
                 return Transaction(
                     signature=signature,
@@ -338,6 +340,8 @@ async def parse_transaction(signature: str, wallet_address: str) -> Optional[Tra
                     price=price,
                     is_buy=is_buy
                 )
+    except ValueError as e:
+        print(f"Error with address format in transaction {signature}: {e}")
     except Exception as e:
         print(f"Error parsing transaction {signature}: {e}")
     return None
@@ -350,8 +354,11 @@ async def check_transactions():
 
         for address in wallet_tracker.wallets:
             try:
+                # Convert string address to Pubkey
+                pubkey = Pubkey.from_string(address)
+                
                 # Get recent transactions
-                response = await solana_client.get_signatures_for_address(address)
+                response = await solana_client.get_signatures_for_address(pubkey)
                 if response.value:
                     for sig in response.value:
                         # Parse and store transaction
@@ -397,6 +404,8 @@ async def check_transactions():
                                 wallet_tracker.tracked_tokens[tx.token_address]['multi_buy_detected'] = True
                                 wallet_tracker.save_tracked_tokens()
                                 
+            except ValueError as e:
+                print(f"Error with wallet address format {address}: {e}")
             except Exception as e:
                 print(f"Error checking transactions for {address}: {e}")
 
