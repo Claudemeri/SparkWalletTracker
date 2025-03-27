@@ -17,6 +17,7 @@ from aiohttp import web
 import threading
 import time
 from httpx import HTTPStatusError
+from solders.signature import Signature
 
 # Load environment variables
 load_dotenv()
@@ -460,10 +461,13 @@ async def rate_limited_request(func, *args, **kwargs):
 
 async def parse_transaction(signature: str, wallet_address: str) -> Optional[Transaction]:
     try:
+        # Convert string signature to Signature object
+        sig = Signature.from_string(signature)
+        
         # Get transaction details with rate limiting
         tx_response = await rate_limited_request(
             solana_client.get_transaction,
-            signature,
+            sig,
             max_supported_transaction_version=0
         )
         if not tx_response or not tx_response.value:
