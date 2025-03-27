@@ -196,7 +196,22 @@ def start(update, context: CallbackContext):
         [KeyboardButton("📝 List Wallets"), KeyboardButton("🔍 Track Token")],
         [KeyboardButton("🔔 Toggle Alerts")]
     ]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
+    
+    # Create menu button
+    menu_button = {
+        "type": "text",
+        "text": "Menu"
+    }
+    
+    try:
+        # Set the menu button
+        context.bot.set_chat_menu_button(
+            chat_id=update.effective_chat.id,
+            menu_button=menu_button
+        )
+    except Exception as e:
+        print(f"Error setting menu button: {e}")
     
     update.message.reply_text(
         'Welcome to Solana Wallet Tracker! Choose an option from the menu below:',
@@ -608,12 +623,23 @@ def show_menu(update, context: CallbackContext):
         [KeyboardButton("📝 List Wallets"), KeyboardButton("🔍 Track Token")],
         [KeyboardButton("🔔 Toggle Alerts")]
     ]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
     update.message.reply_text("Choose an option:", reply_markup=reply_markup)
 
 def summary(update, context: CallbackContext):
     summary_text = get_activity_summary()
     update.message.reply_text(summary_text, parse_mode=ParseMode.MARKDOWN)
+
+def handle_menu_button(update, context: CallbackContext):
+    """Handle the menu button press"""
+    keyboard = [
+        [KeyboardButton("📊 Summary")],
+        [KeyboardButton("➕ Add Wallet"), KeyboardButton("➖ Remove Wallet")],
+        [KeyboardButton("📝 List Wallets"), KeyboardButton("🔍 Track Token")],
+        [KeyboardButton("🔔 Toggle Alerts")]
+    ]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
+    update.message.reply_text("Choose an option:", reply_markup=reply_markup)
 
 def main():
     # Create the Updater and pass it your bot's token
@@ -628,6 +654,7 @@ def main():
     dispatcher.add_handler(CommandHandler("summary", summary))
     dispatcher.add_handler(CallbackQueryHandler(button_handler))
     dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
+    dispatcher.add_handler(MessageHandler(Filters.regex('^Menu$'), handle_menu_button))
 
     # Add web routes
     app.add_routes(routes)
