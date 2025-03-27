@@ -51,13 +51,24 @@ async def health_check(request):
 
 class Transaction:
     def __init__(self, signature: str, timestamp: int, token_address: str, amount: float, price: float, is_buy: bool):
-        self.signature = signature
+        self.signature = str(signature)  # Ensure signature is a string
         self.timestamp = timestamp
         self.token_address = token_address
         self.amount = amount
         self.price = price
         self.is_buy = is_buy
         self.total_value = amount * price
+
+    def to_dict(self):
+        return {
+            'signature': self.signature,
+            'timestamp': self.timestamp,
+            'token_address': self.token_address,
+            'amount': self.amount,
+            'price': self.price,
+            'is_buy': self.is_buy,
+            'total_value': self.total_value
+        }
 
 class WalletTracker:
     def __init__(self):
@@ -133,15 +144,8 @@ class WalletTracker:
     def add_transaction(self, wallet_address: str, transaction: Transaction):
         if wallet_address not in self.transactions:
             self.transactions[wallet_address] = []
-        self.transactions[wallet_address].append({
-            'signature': transaction.signature,
-            'timestamp': transaction.timestamp,
-            'token_address': transaction.token_address,
-            'amount': transaction.amount,
-            'price': transaction.price,
-            'is_buy': transaction.is_buy,
-            'total_value': transaction.total_value
-        })
+        # Convert Transaction object to dictionary before storing
+        self.transactions[wallet_address].append(transaction.to_dict())
         self.save_transactions()
 
     def get_recent_transactions(self, wallet_address: str, hours: int = 6) -> List[Transaction]:
@@ -376,25 +380,33 @@ async def parse_transaction(signature: str, wallet_address: str) -> Optional[Tra
                 
                 # Check if it's a Jupiter or Raydium swap
                 if program_id in [JUPITER_PROGRAM_ID, RAYDIUM_PROGRAM_ID]:
+                    # Get all account keys for reference
+                    all_accounts = [str(key) for key in message.account_keys]
+                    
                     # Safely get account indices and validate them
                     if not hasattr(ix, 'accounts') or not ix.accounts:
                         continue
-                        
-                    # Convert indices to actual account addresses, with validation
-                    accounts = []
-                    for idx in ix.accounts:
-                        if idx >= len(message.account_keys):
-                            print(f"Invalid account index {idx} in transaction {signature}")
-                            continue
-                        accounts.append(str(message.account_keys[idx]))
                     
-                    # Need at least 2 accounts for token operations
-                    if len(accounts) < 2:
+                    # Find the token account (usually the second account, but could be in other positions)
+                    token_account = None
+                    wallet_found = False
+                    wallet_pubkey = str(Pubkey.from_string(wallet_address))
+                    
+                    # Look through all accounts to find the wallet and token
+                    for idx in ix.accounts:
+                        if idx >= len(all_accounts):
+                            print(f"Skipping invalid account index {idx} in transaction {signature}")
+                            continue
+                            
+                        account = all_accounts[idx]
+                        if account == wallet_pubkey:
+                            wallet_found = True
+                        elif account != program_id:  # Potential token account
+                            token_account = account
+                    
+                    if not wallet_found or not token_account:
                         continue
 
-                    # Extract token addresses and amounts
-                    token_address = accounts[1]  # Second account is typically the token account
-                    
                     # Safely parse data
                     try:
                         data_bytes = base58.b58decode(ix.data) if hasattr(ix, 'data') and ix.data else None
@@ -405,18 +417,13 @@ async def parse_transaction(signature: str, wallet_address: str) -> Optional[Tra
                         
                     price = 1.0  # You'll need to implement price fetching
                     
-                    # Convert wallet address to Pubkey for comparison
-                    wallet_pubkey = Pubkey.from_string(wallet_address)
-                    # Determine if it's a buy or sell by comparing the first account with wallet
-                    is_buy = accounts[0] == str(wallet_pubkey)
-                    
                     return Transaction(
-                        signature=signature,
+                        signature=str(signature),  # Ensure signature is a string
                         timestamp=timestamp,
-                        token_address=token_address,
+                        token_address=token_account,
                         amount=amount,
                         price=price,
-                        is_buy=is_buy
+                        is_buy=wallet_found  # If wallet is found in accounts, it's likely a buy
                     )
             except (IndexError, ValueError) as e:
                 print(f"Error parsing instruction in transaction {signature}: {e}")
