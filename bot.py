@@ -317,8 +317,19 @@ async def parse_transaction(signature: str, wallet_address: str) -> Optional[Tra
         tx = tx_response.value
         timestamp = tx.block_time or int(datetime.now().timestamp())
 
+        # Get the transaction message from the correct structure
+        if hasattr(tx.transaction, 'transaction'):
+            # Handle versioned transaction
+            message = tx.transaction.transaction.message
+        elif hasattr(tx.transaction, 'message'):
+            # Handle legacy transaction
+            message = tx.transaction.message
+        else:
+            print(f"Unexpected transaction structure for {signature}")
+            return None
+
         # Parse transaction instructions
-        for ix in tx.transaction.message.instructions:
+        for ix in message.instructions:
             program_id = str(ix.program_id)
             
             # Check if it's a Jupiter or Raydium swap
@@ -345,6 +356,8 @@ async def parse_transaction(signature: str, wallet_address: str) -> Optional[Tra
                 )
     except ValueError as e:
         print(f"Error with address format in transaction {signature}: {e}")
+    except AttributeError as e:
+        print(f"Error accessing transaction attributes for {signature}: {e}")
     except Exception as e:
         print(f"Error parsing transaction {signature}: {e}")
     return None
