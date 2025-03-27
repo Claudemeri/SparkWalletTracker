@@ -189,137 +189,162 @@ class WalletTracker:
 wallet_tracker = WalletTracker()
 
 def start(update, context: CallbackContext):
-    # Create menu keyboard
+    # Create inline keyboard
     keyboard = [
-        [KeyboardButton("📊 Summary")],
-        [KeyboardButton("➕ Add Wallet"), KeyboardButton("➖ Remove Wallet")],
-        [KeyboardButton("📝 List Wallets"), KeyboardButton("🔍 Track Token")],
-        [KeyboardButton("🔔 Toggle Alerts")]
+        [InlineKeyboardButton("📊 Summary", callback_data='show_summary')],
+        [
+            InlineKeyboardButton("➕ Add Wallet", callback_data='add_wallet'),
+            InlineKeyboardButton("➖ Remove Wallet", callback_data='remove_wallet')
+        ],
+        [
+            InlineKeyboardButton("📝 List Wallets", callback_data='list_wallets'),
+            InlineKeyboardButton("🔍 Track Token", callback_data='track_token')
+        ],
+        [InlineKeyboardButton("🔔 Toggle Alerts", callback_data='toggle_alerts')]
     ]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
-    
-    # Create menu button
-    menu_button = {
-        "type": "text",
-        "text": "Menu"
-    }
-    
-    try:
-        # Set the menu button
-        context.bot.set_chat_menu_button(
-            chat_id=update.effective_chat.id,
-            menu_button=menu_button
-        )
-    except Exception as e:
-        print(f"Error setting menu button: {e}")
+    reply_markup = InlineKeyboardMarkup(keyboard)
     
     update.message.reply_text(
-        'Welcome to Solana Wallet Tracker! Choose an option from the menu below:',
+        'Welcome to Solana Wallet Tracker! Choose an option:',
         reply_markup=reply_markup
     )
+
+def show_menu(update, context: CallbackContext):
+    keyboard = [
+        [InlineKeyboardButton("📊 Summary", callback_data='show_summary')],
+        [
+            InlineKeyboardButton("➕ Add Wallet", callback_data='add_wallet'),
+            InlineKeyboardButton("➖ Remove Wallet", callback_data='remove_wallet')
+        ],
+        [
+            InlineKeyboardButton("📝 List Wallets", callback_data='list_wallets'),
+            InlineKeyboardButton("🔍 Track Token", callback_data='track_token')
+        ],
+        [InlineKeyboardButton("🔔 Toggle Alerts", callback_data='toggle_alerts')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    if update.message:
+        update.message.reply_text("Choose an option:", reply_markup=reply_markup)
+    else:
+        update.callback_query.message.reply_text("Choose an option:", reply_markup=reply_markup)
 
 def button_handler(update, context: CallbackContext):
     query = update.callback_query
     query.answer()
 
-    if query.data == 'add_wallet':
+    if query.data == 'show_summary':
+        summary_text = get_activity_summary()
+        keyboard = [[InlineKeyboardButton("⬅️ Back to Menu", callback_data='show_menu')]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        query.message.edit_text(summary_text, parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
+    elif query.data == 'show_menu':
+        keyboard = [
+            [InlineKeyboardButton("📊 Summary", callback_data='show_summary')],
+            [
+                InlineKeyboardButton("➕ Add Wallet", callback_data='add_wallet'),
+                InlineKeyboardButton("➖ Remove Wallet", callback_data='remove_wallet')
+            ],
+            [
+                InlineKeyboardButton("📝 List Wallets", callback_data='list_wallets'),
+                InlineKeyboardButton("🔍 Track Token", callback_data='track_token')
+            ],
+            [InlineKeyboardButton("🔔 Toggle Alerts", callback_data='toggle_alerts')]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        query.message.edit_text("Choose an option:", reply_markup=reply_markup)
+    elif query.data == 'add_wallet':
         context.user_data['state'] = 'waiting_for_wallet_address'
-        query.message.reply_text(
-            'Please send me the wallet address you want to track.'
+        keyboard = [[InlineKeyboardButton("⬅️ Back to Menu", callback_data='show_menu')]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        query.message.edit_text(
+            'Please send me the wallet address you want to track.',
+            reply_markup=reply_markup
+        )
+    elif query.data == 'track_token':
+        context.user_data['state'] = 'waiting_for_token_address'
+        keyboard = [[InlineKeyboardButton("⬅️ Back to Menu", callback_data='show_menu')]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        query.message.edit_text(
+            'Please send me the token address you want to track.',
+            reply_markup=reply_markup
         )
     elif query.data == 'remove_wallet':
-        context.user_data['state'] = 'waiting_for_wallet_to_remove'
         if not wallet_tracker.wallets:
-            query.message.reply_text('No wallets are being tracked.')
-            context.user_data.clear()
+            keyboard = [[InlineKeyboardButton("⬅️ Back to Menu", callback_data='show_menu')]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            query.message.edit_text('No wallets are being tracked.', reply_markup=reply_markup)
             return
         
         # Create a keyboard with wallet options
         keyboard = []
         for addr, data in wallet_tracker.wallets.items():
             keyboard.append([InlineKeyboardButton(data['name'], callback_data=f'remove_{addr}')])
-        keyboard.append([InlineKeyboardButton("Cancel", callback_data='cancel')])
+        keyboard.append([InlineKeyboardButton("⬅️ Back to Menu", callback_data='show_menu')])
         reply_markup = InlineKeyboardMarkup(keyboard)
-        query.message.reply_text('Select a wallet to remove:', reply_markup=reply_markup)
+        query.message.edit_text('Select a wallet to remove:', reply_markup=reply_markup)
     elif query.data == 'list_wallets':
         if not wallet_tracker.wallets:
-            query.message.reply_text('No wallets are being tracked.')
+            text = 'No wallets are being tracked.'
         else:
-            wallet_list = '\n'.join([f"{data['name']} ({addr})" for addr, data in wallet_tracker.wallets.items()])
-            query.message.reply_text(f'Tracked Wallets:\n{wallet_list}')
+            text = 'Tracked Wallets:\n' + '\n'.join([f"{data['name']} ({addr})" for addr, data in wallet_tracker.wallets.items()])
+        keyboard = [[InlineKeyboardButton("⬅️ Back to Menu", callback_data='show_menu')]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        query.message.edit_text(text, reply_markup=reply_markup)
     elif query.data == 'toggle_alerts':
         wallet_tracker.alerts_enabled = not wallet_tracker.alerts_enabled
         status = 'enabled' if wallet_tracker.alerts_enabled else 'disabled'
-        query.message.reply_text(f'Alerts have been {status}')
+        keyboard = [[InlineKeyboardButton("⬅️ Back to Menu", callback_data='show_menu')]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        query.message.edit_text(f'Alerts have been {status}', reply_markup=reply_markup)
     elif query.data.startswith('track_sells_'):
         token_address = query.data.replace('track_sells_', '')
         handle_track_sells(update, context, token_address)
     elif query.data.startswith('remove_'):
         address = query.data.replace('remove_', '')
         if wallet_tracker.remove_wallet(address):
-            query.message.reply_text(f'Removed wallet {wallet_tracker.get_wallet_name(address)} ({address})')
+            text = f'Removed wallet {wallet_tracker.get_wallet_name(address)} ({address})'
         else:
-            query.message.reply_text('Failed to remove wallet')
-        context.user_data.clear()
+            text = 'Failed to remove wallet'
+        keyboard = [[InlineKeyboardButton("⬅️ Back to Menu", callback_data='show_menu')]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        query.message.edit_text(text, reply_markup=reply_markup)
     elif query.data == 'cancel':
-        query.message.reply_text('Operation cancelled.')
+        keyboard = [[InlineKeyboardButton("⬅️ Back to Menu", callback_data='show_menu')]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        query.message.edit_text('Operation cancelled.', reply_markup=reply_markup)
         context.user_data.clear()
 
 def handle_message(update, context: CallbackContext):
     text = update.message.text
     
-    # Handle menu button clicks
-    if text == "📊 Summary":
-        summary = get_activity_summary()
-        update.message.reply_text(summary, parse_mode=ParseMode.MARKDOWN)
-        return
-    elif text == "➕ Add Wallet":
-        context.user_data['state'] = 'waiting_for_wallet_address'
-        update.message.reply_text('Please send me the wallet address you want to track.')
-        return
-    elif text == "➖ Remove Wallet":
-        if not wallet_tracker.wallets:
-            update.message.reply_text('No wallets are being tracked.')
-            return
-        keyboard = []
-        for addr, data in wallet_tracker.wallets.items():
-            keyboard.append([InlineKeyboardButton(data['name'], callback_data=f'remove_{addr}')])
-        keyboard.append([InlineKeyboardButton("Cancel", callback_data='cancel')])
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        update.message.reply_text('Select a wallet to remove:', reply_markup=reply_markup)
-        return
-    elif text == "📝 List Wallets":
-        if not wallet_tracker.wallets:
-            update.message.reply_text('No wallets are being tracked.')
-        else:
-            wallet_list = '\n'.join([f"{data['name']} ({addr})" for addr, data in wallet_tracker.wallets.items()])
-            update.message.reply_text(f'Tracked Wallets:\n{wallet_list}')
-        return
-    elif text == "🔍 Track Token":
-        context.user_data['state'] = 'waiting_for_token_address'
-        update.message.reply_text('Please send me the token address you want to track.')
-        return
-    elif text == "🔔 Toggle Alerts":
-        wallet_tracker.alerts_enabled = not wallet_tracker.alerts_enabled
-        status = 'enabled' if wallet_tracker.alerts_enabled else 'disabled'
-        update.message.reply_text(f'Alerts have been {status}')
-        return
-
-    # Handle existing message flows
+    # Handle message flows
     if context.user_data.get('state') == 'waiting_for_wallet_address':
-        context.user_data['wallet_address'] = update.message.text
+        context.user_data['wallet_address'] = text
         context.user_data['state'] = 'waiting_for_wallet_name'
-        update.message.reply_text('Please send me a name for this wallet.')
+        keyboard = [[InlineKeyboardButton("⬅️ Back to Menu", callback_data='show_menu')]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        update.message.reply_text('Please send me a name for this wallet.', reply_markup=reply_markup)
     elif context.user_data.get('state') == 'waiting_for_wallet_name':
         wallet_address = context.user_data['wallet_address']
-        wallet_name = update.message.text
+        wallet_name = text
         wallet_tracker.add_wallet(wallet_address, wallet_name)
-        update.message.reply_text(f'Added wallet {wallet_name} ({wallet_address})')
+        keyboard = [[InlineKeyboardButton("⬅️ Back to Menu", callback_data='show_menu')]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        update.message.reply_text(
+            f'Added wallet {wallet_name} ({wallet_address})',
+            reply_markup=reply_markup
+        )
         context.user_data.clear()
     elif context.user_data.get('state') == 'waiting_for_token_address':
-        token_address = update.message.text
+        token_address = text
         wallet_tracker.add_tracked_token(token_address, list(wallet_tracker.wallets.keys()))
-        update.message.reply_text(f'Now tracking token {token_address} for all wallets')
+        keyboard = [[InlineKeyboardButton("⬅️ Back to Menu", callback_data='show_menu')]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        update.message.reply_text(
+            f'Now tracking token {token_address} for all wallets',
+            reply_markup=reply_markup
+        )
         context.user_data.clear()
 
 def handle_track_sells(update, context: CallbackContext, token_address: str):
@@ -565,7 +590,8 @@ def get_activity_summary(hours: int = 24) -> str:
                     token_activity[token_addr] = {
                         'volume': 0,
                         'wallets': set(),
-                        'tx_count': 0
+                        'tx_count': 0,
+                        'name': token_addr[:6] + '...' + token_addr[-4:]  # Shorten token address
                     }
                 
                 # Update token activity
@@ -599,47 +625,28 @@ def get_activity_summary(hours: int = 24) -> str:
     )[:4]  # Top 4 wallets
     
     # Build the summary message
-    message = f"📊 Activity Summary (Last {hours} Hours)\n\n"
+    message = f"📊 *Activity Summary (Last {hours} Hours)*\n\n"
     
     # Most traded tokens section
-    message += "🔥 Most Traded Tokens:\n"
+    message += "🔥 *Most Traded Tokens:*\n"
     for token_addr, data in sorted_tokens:
         message += (
-            f"{token_addr}: {data['volume']:.2f} SOL | "
-            f"{len(data['wallets'])} wallets | {data['tx_count']} txs (more)\n"
+            f"`{data['name']}`: {data['volume']:.2f} SOL | "
+            f"{len(data['wallets'])} wallets | {data['tx_count']} txs _(more)_\n"
         )
     
-    message += "\n💰 Top Performing Wallets:\n"
+    message += "\n💰 *Top Performing Wallets:*\n"
     for wallet_addr, data in sorted_wallets:
         profit_str = f"+{data['profit']:.2f}" if data['profit'] >= 0 else f"{data['profit']:.2f}"
-        message += f"{data['name']}: 📈 {profit_str} SOL | {data['tx_count']} txs (more)\n"
+        message += f"{data['name']}: 📈 `{profit_str} SOL` | {data['tx_count']} txs _(more)_\n"
     
     return message
 
-def show_menu(update, context: CallbackContext):
-    keyboard = [
-        [KeyboardButton("📊 Summary")],
-        [KeyboardButton("➕ Add Wallet"), KeyboardButton("➖ Remove Wallet")],
-        [KeyboardButton("📝 List Wallets"), KeyboardButton("🔍 Track Token")],
-        [KeyboardButton("🔔 Toggle Alerts")]
-    ]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
-    update.message.reply_text("Choose an option:", reply_markup=reply_markup)
-
 def summary(update, context: CallbackContext):
     summary_text = get_activity_summary()
-    update.message.reply_text(summary_text, parse_mode=ParseMode.MARKDOWN)
-
-def handle_menu_button(update, context: CallbackContext):
-    """Handle the menu button press"""
-    keyboard = [
-        [KeyboardButton("📊 Summary")],
-        [KeyboardButton("➕ Add Wallet"), KeyboardButton("➖ Remove Wallet")],
-        [KeyboardButton("📝 List Wallets"), KeyboardButton("🔍 Track Token")],
-        [KeyboardButton("🔔 Toggle Alerts")]
-    ]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
-    update.message.reply_text("Choose an option:", reply_markup=reply_markup)
+    keyboard = [[InlineKeyboardButton("⬅️ Back to Menu", callback_data='show_menu')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    update.message.reply_text(summary_text, parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
 
 def main():
     # Create the Updater and pass it your bot's token
@@ -654,7 +661,6 @@ def main():
     dispatcher.add_handler(CommandHandler("summary", summary))
     dispatcher.add_handler(CallbackQueryHandler(button_handler))
     dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
-    dispatcher.add_handler(MessageHandler(Filters.regex('^Menu$'), handle_menu_button))
 
     # Add web routes
     app.add_routes(routes)
