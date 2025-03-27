@@ -5,7 +5,7 @@ import base58
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from dotenv import load_dotenv
-from telegram import ParseMode
+from telegram import ParseMode, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext, MessageHandler, Filters
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from solana.rpc.async_api import AsyncClient
@@ -175,16 +175,17 @@ class WalletTracker:
 wallet_tracker = WalletTracker()
 
 def start(update, context: CallbackContext):
+    # Create menu keyboard
     keyboard = [
-        [InlineKeyboardButton("Add Wallet", callback_data='add_wallet')],
-        [InlineKeyboardButton("Remove Wallet", callback_data='remove_wallet')],
-        [InlineKeyboardButton("List Wallets", callback_data='list_wallets')],
-        [InlineKeyboardButton("Track Token", callback_data='track_token')],
-        [InlineKeyboardButton("Toggle Alerts", callback_data='toggle_alerts')]
+        [KeyboardButton("📊 Summary")],
+        [KeyboardButton("➕ Add Wallet"), KeyboardButton("➖ Remove Wallet")],
+        [KeyboardButton("📝 List Wallets"), KeyboardButton("🔍 Track Token")],
+        [KeyboardButton("🔔 Toggle Alerts")]
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    
     update.message.reply_text(
-        'Welcome to Solana Wallet Tracker! Choose an option:',
+        'Welcome to Solana Wallet Tracker! Choose an option from the menu below:',
         reply_markup=reply_markup
     )
 
@@ -236,19 +237,55 @@ def button_handler(update, context: CallbackContext):
         context.user_data.clear()
 
 def handle_message(update, context: CallbackContext):
-    # Check if user is in the add wallet flow
+    text = update.message.text
+    
+    # Handle menu button clicks
+    if text == "📊 Summary":
+        summary = get_activity_summary()
+        update.message.reply_text(summary, parse_mode=ParseMode.MARKDOWN)
+        return
+    elif text == "➕ Add Wallet":
+        context.user_data['state'] = 'waiting_for_wallet_address'
+        update.message.reply_text('Please send me the wallet address you want to track.')
+        return
+    elif text == "➖ Remove Wallet":
+        if not wallet_tracker.wallets:
+            update.message.reply_text('No wallets are being tracked.')
+            return
+        keyboard = []
+        for addr, data in wallet_tracker.wallets.items():
+            keyboard.append([InlineKeyboardButton(data['name'], callback_data=f'remove_{addr}')])
+        keyboard.append([InlineKeyboardButton("Cancel", callback_data='cancel')])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        update.message.reply_text('Select a wallet to remove:', reply_markup=reply_markup)
+        return
+    elif text == "📝 List Wallets":
+        if not wallet_tracker.wallets:
+            update.message.reply_text('No wallets are being tracked.')
+        else:
+            wallet_list = '\n'.join([f"{data['name']} ({addr})" for addr, data in wallet_tracker.wallets.items()])
+            update.message.reply_text(f'Tracked Wallets:\n{wallet_list}')
+        return
+    elif text == "🔍 Track Token":
+        context.user_data['state'] = 'waiting_for_token_address'
+        update.message.reply_text('Please send me the token address you want to track.')
+        return
+    elif text == "🔔 Toggle Alerts":
+        wallet_tracker.alerts_enabled = not wallet_tracker.alerts_enabled
+        status = 'enabled' if wallet_tracker.alerts_enabled else 'disabled'
+        update.message.reply_text(f'Alerts have been {status}')
+        return
+
+    # Handle existing message flows
     if context.user_data.get('state') == 'waiting_for_wallet_address':
-        # Store the wallet address and ask for the name
         context.user_data['wallet_address'] = update.message.text
         context.user_data['state'] = 'waiting_for_wallet_name'
         update.message.reply_text('Please send me a name for this wallet.')
     elif context.user_data.get('state') == 'waiting_for_wallet_name':
-        # Add the wallet with the provided name
         wallet_address = context.user_data['wallet_address']
         wallet_name = update.message.text
         wallet_tracker.add_wallet(wallet_address, wallet_name)
         update.message.reply_text(f'Added wallet {wallet_name} ({wallet_address})')
-        # Clear the user's state
         context.user_data.clear()
     elif context.user_data.get('state') == 'waiting_for_token_address':
         token_address = update.message.text
@@ -379,6 +416,93 @@ def run_async_tasks():
     loop.run_until_complete(check_transactions())
     loop.run_forever()
 
+def get_activity_summary(hours: int = 24) -> str:
+    """Generate activity summary for the last n hours"""
+    now = datetime.now()
+    cutoff_time = int((now - timedelta(hours=hours)).timestamp())
+    
+    # Track token activity
+    token_activity = {}
+    wallet_activity = {}
+    
+    # Process all transactions
+    for wallet_addr, transactions in wallet_tracker.transactions.items():
+        wallet_name = wallet_tracker.get_wallet_name(wallet_addr)
+        wallet_profit = 0
+        wallet_tx_count = 0
+        
+        for tx in transactions:
+            if tx['timestamp'] >= cutoff_time:
+                token_addr = tx['token_address']
+                if token_addr not in token_activity:
+                    token_activity[token_addr] = {
+                        'volume': 0,
+                        'wallets': set(),
+                        'tx_count': 0
+                    }
+                
+                # Update token activity
+                token_activity[token_addr]['volume'] += tx['total_value']
+                token_activity[token_addr]['wallets'].add(wallet_addr)
+                token_activity[token_addr]['tx_count'] += 1
+                
+                # Update wallet activity
+                wallet_profit += tx['total_value'] if not tx['is_buy'] else -tx['total_value']
+                wallet_tx_count += 1
+        
+        if wallet_tx_count > 0:
+            wallet_activity[wallet_addr] = {
+                'name': wallet_name,
+                'profit': wallet_profit,
+                'tx_count': wallet_tx_count
+            }
+    
+    # Sort tokens by volume
+    sorted_tokens = sorted(
+        [(addr, data) for addr, data in token_activity.items()],
+        key=lambda x: x[1]['volume'],
+        reverse=True
+    )[:10]  # Top 10 tokens
+    
+    # Sort wallets by profit
+    sorted_wallets = sorted(
+        [(addr, data) for addr, data in wallet_activity.items()],
+        key=lambda x: x[1]['profit'],
+        reverse=True
+    )[:4]  # Top 4 wallets
+    
+    # Build the summary message
+    message = f"📊 Activity Summary (Last {hours} Hours)\n\n"
+    
+    # Most traded tokens section
+    message += "🔥 Most Traded Tokens:\n"
+    for token_addr, data in sorted_tokens:
+        message += (
+            f"{token_addr}: {data['volume']:.2f} SOL | "
+            f"{len(data['wallets'])} wallets | {data['tx_count']} txs (more)\n"
+        )
+    
+    message += "\n💰 Top Performing Wallets:\n"
+    for wallet_addr, data in sorted_wallets:
+        profit_str = f"+{data['profit']:.2f}" if data['profit'] >= 0 else f"{data['profit']:.2f}"
+        message += f"{data['name']}: 📈 {profit_str} SOL | {data['tx_count']} txs (more)\n"
+    
+    return message
+
+def show_menu(update, context: CallbackContext):
+    keyboard = [
+        [KeyboardButton("📊 Summary")],
+        [KeyboardButton("➕ Add Wallet"), KeyboardButton("➖ Remove Wallet")],
+        [KeyboardButton("📝 List Wallets"), KeyboardButton("🔍 Track Token")],
+        [KeyboardButton("🔔 Toggle Alerts")]
+    ]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    update.message.reply_text("Choose an option:", reply_markup=reply_markup)
+
+def summary(update, context: CallbackContext):
+    summary_text = get_activity_summary()
+    update.message.reply_text(summary_text, parse_mode=ParseMode.MARKDOWN)
+
 def main():
     # Create the Updater and pass it your bot's token
     updater = Updater(os.getenv('TELEGRAM_BOT_TOKEN'), use_context=True)
@@ -388,6 +512,8 @@ def main():
 
     # Add handlers
     dispatcher.add_handler(CommandHandler("start", start))
+    dispatcher.add_handler(CommandHandler("menu", show_menu))
+    dispatcher.add_handler(CommandHandler("summary", summary))
     dispatcher.add_handler(CallbackQueryHandler(button_handler))
     dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
 
