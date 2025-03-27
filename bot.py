@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext
 from solana.rpc.async_api import AsyncClient
 from solana.rpc.commitment import Commitment
 from solders.pubkey import Pubkey
@@ -172,7 +172,7 @@ class WalletTracker:
 # Initialize wallet tracker
 wallet_tracker = WalletTracker()
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start(update: Update, context: CallbackContext):
     keyboard = [
         [InlineKeyboardButton("Add Wallet", callback_data='add_wallet')],
         [InlineKeyboardButton("Remove Wallet", callback_data='remove_wallet')],
@@ -185,7 +185,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def button_handler(update: Update, context: CallbackContext):
     query = update.callback_query
     await query.answer()
 
@@ -211,7 +211,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         token_address = query.data.replace('track_sells_', '')
         await handle_track_sells(update, context, token_address)
 
-async def add_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def add_wallet(update: Update, context: CallbackContext):
     try:
         address, name = context.args
         wallet_tracker.add_wallet(address, name)
@@ -219,7 +219,7 @@ async def add_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except ValueError:
         await update.message.reply_text('Please provide both address and name:\n/addwallet <address> <name>')
 
-async def remove_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def remove_wallet(update: Update, context: CallbackContext):
     try:
         address = context.args[0]
         if wallet_tracker.remove_wallet(address):
@@ -229,7 +229,7 @@ async def remove_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except IndexError:
         await update.message.reply_text('Please provide a wallet address:\n/removewallet <address>')
 
-async def track_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def track_token(update: Update, context: CallbackContext):
     try:
         token_address = context.args[0]
         wallet_tracker.add_tracked_token(token_address, list(wallet_tracker.wallets.keys()))
@@ -237,7 +237,7 @@ async def track_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except IndexError:
         await update.message.reply_text('Please provide a token address:\n/tracktoken <address>')
 
-async def handle_track_sells(update: Update, context: ContextTypes.DEFAULT_TYPE, token_address: str):
+async def handle_track_sells(update: Update, context: CallbackContext, token_address: str):
     keyboard = [
         [InlineKeyboardButton("Track Multi-Sells Only", callback_data=f'multi_sells_{token_address}')],
         [InlineKeyboardButton("Track All Sells", callback_data=f'all_sells_{token_address}')]
@@ -354,15 +354,18 @@ async def start_web_server():
     print(f"Web server started on port {os.getenv('PORT', '8080')}")
 
 def main():
-    # Create the Application and pass it your bot's token
-    application = Application.builder().token(os.getenv('TELEGRAM_BOT_TOKEN')).build()
+    # Create the Updater and pass it your bot's token
+    updater = Updater(os.getenv('TELEGRAM_BOT_TOKEN'), use_context=True)
+
+    # Get the dispatcher to register handlers
+    dispatcher = updater.dispatcher
 
     # Add handlers
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("addwallet", add_wallet))
-    application.add_handler(CommandHandler("removewallet", remove_wallet))
-    application.add_handler(CommandHandler("tracktoken", track_token))
-    application.add_handler(CallbackQueryHandler(button_handler))
+    dispatcher.add_handler(CommandHandler("start", start))
+    dispatcher.add_handler(CommandHandler("addwallet", add_wallet))
+    dispatcher.add_handler(CommandHandler("removewallet", remove_wallet))
+    dispatcher.add_handler(CommandHandler("tracktoken", track_token))
+    dispatcher.add_handler(CallbackQueryHandler(button_handler))
 
     # Add web routes
     app.add_routes(routes)
@@ -374,7 +377,8 @@ def main():
     asyncio.create_task(check_transactions())
 
     # Start the bot
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    updater.start_polling()
+    updater.idle()
 
 if __name__ == '__main__':
     main() 
