@@ -493,11 +493,15 @@ async def parse_transaction(signature: str, wallet_address: str) -> Optional[Tra
             print(f"Unexpected transaction structure for {signature}")
             return None
 
+        # Get the number of account keys for safety checking
+        account_keys_count = len(message.account_keys)
+
         # Parse transaction instructions
         for ix in message.instructions:
             try:
-                # Safely get program ID index and validate it
-                if not hasattr(ix, 'program_id_index') or ix.program_id_index >= len(message.account_keys):
+                # Enhanced account index validation
+                if not hasattr(ix, 'program_id_index') or ix.program_id_index >= account_keys_count:
+                    print(f"Invalid program_id_index {ix.program_id_index} for transaction {signature}")
                     continue
 
                 # Get program ID from account keys
@@ -519,7 +523,7 @@ async def parse_transaction(signature: str, wallet_address: str) -> Optional[Tra
                     
                     # Look through all accounts to find the wallet and token
                     for idx in ix.accounts:
-                        if idx >= len(all_accounts):
+                        if idx >= account_keys_count:
                             print(f"Skipping invalid account index {idx} in transaction {signature}")
                             continue
                             
@@ -543,12 +547,12 @@ async def parse_transaction(signature: str, wallet_address: str) -> Optional[Tra
                     price = 1.0  # You'll need to implement price fetching
                     
                     return Transaction(
-                        signature=str(signature),  # Ensure signature is a string
+                        signature=str(signature),
                         timestamp=timestamp,
                         token_address=token_account,
                         amount=amount,
                         price=price,
-                        is_buy=wallet_found  # If wallet is found in accounts, it's likely a buy
+                        is_buy=wallet_found
                     )
             except (IndexError, ValueError) as e:
                 print(f"Error parsing instruction in transaction {signature}: {e}")
@@ -556,12 +560,8 @@ async def parse_transaction(signature: str, wallet_address: str) -> Optional[Tra
 
         return None
 
-    except ValueError as e:
-        print(f"Error with address format in transaction {signature}: {e}")
-    except AttributeError as e:
-        print(f"Error accessing transaction attributes for {signature}: {e}")
     except Exception as e:
-        print(f"Error parsing transaction {signature}: {e}")
+        print(f"Comprehensive error parsing transaction {signature}: {e}")
         import traceback
         traceback.print_exc()
     return None
