@@ -477,6 +477,7 @@ async def parse_transaction(signature: str, wallet_address: str) -> Optional[Tra
             max_supported_transaction_version=0
         )
         if not tx_response or not tx_response.value:
+            print(f"No transaction data found for signature {signature}")
             return None
 
         tx = tx_response.value
@@ -493,71 +494,66 @@ async def parse_transaction(signature: str, wallet_address: str) -> Optional[Tra
             print(f"Unexpected transaction structure for {signature}")
             return None
 
+        # Debug: Print full transaction details
+        print(f"Transaction Signature: {signature}")
+        print("Account Keys:")
+        for i, key in enumerate(message.account_keys):
+            print(f"{i}: {key}")
+
         # Get the number of account keys for safety checking
         account_keys_count = len(message.account_keys)
+        print(f"Total Account Keys: {account_keys_count}")
 
         # Parse transaction instructions
-        for ix in message.instructions:
+        for ix_index, ix in enumerate(message.instructions):
+            print(f"\nInstruction {ix_index}:")
+            
+            # Debug: Print instruction details
             try:
-                # Enhanced account index validation
-                if not hasattr(ix, 'program_id_index') or ix.program_id_index >= account_keys_count:
-                    print(f"Invalid program_id_index {ix.program_id_index} for transaction {signature}")
+                # Safely print program ID index
+                if hasattr(ix, 'program_id_index'):
+                    print(f"Program ID Index: {ix.program_id_index}")
+                    
+                    # Validate program ID index
+                    if ix.program_id_index >= account_keys_count:
+                        print(f"ERROR: Invalid program_id_index {ix.program_id_index}")
+                        continue
+
+                    # Get program ID from account keys
+                    program_id = str(message.account_keys[ix.program_id_index])
+                    print(f"Program ID: {program_id}")
+                else:
+                    print("No program_id_index found")
                     continue
 
-                # Get program ID from account keys
-                program_id = str(message.account_keys[ix.program_id_index])
-                
-                # Check if it's a Jupiter or Raydium swap
-                if program_id in [JUPITER_PROGRAM_ID, RAYDIUM_PROGRAM_ID]:
-                    # Get all account keys for reference
-                    all_accounts = [str(key) for key in message.account_keys]
-                    
-                    # Safely get account indices and validate them
-                    if not hasattr(ix, 'accounts') or not ix.accounts:
-                        continue
-
-                    # Find the token account (usually the second account, but could be in other positions)
-                    token_account = None
-                    wallet_found = False
-                    wallet_pubkey = str(Pubkey.from_string(wallet_address))
-                    
-                    # Look through all accounts to find the wallet and token
-                    for idx in ix.accounts:
-                        if idx >= account_keys_count:
-                            print(f"Skipping invalid account index {idx} in transaction {signature}")
-                            continue
-                            
-                        account = all_accounts[idx]
-                        if account == wallet_pubkey:
-                            wallet_found = True
-                        elif account != program_id:  # Potential token account
-                            token_account = account
-
-                    if not wallet_found or not token_account:
-                        continue
-
-                    # Safely parse data
-                    try:
-                        data_bytes = base58.b58decode(ix.data) if hasattr(ix, 'data') and ix.data else None
-                        amount = float(int.from_bytes(data_bytes[1:9], 'little')) / 1e9 if data_bytes and len(data_bytes) >= 9 else 0
-                    except (ValueError, IndexError) as e:
-                        print(f"Error parsing data in transaction {signature}: {e}")
-                        amount = 0
+                # Debug: Print instruction accounts
+                if hasattr(ix, 'accounts'):
+                    print("Instruction Accounts:")
+                    for acc_index, acc in enumerate(ix.accounts):
+                        print(f"  Account {acc_index}: {acc}")
                         
-                    price = 1.0  # You'll need to implement price fetching
-                    
-                    return Transaction(
-                        signature=str(signature),
-                        timestamp=timestamp,
-                        token_address=token_account,
-                        amount=amount,
-                        price=price,
-                        is_buy=wallet_found
-                    )
-            except (IndexError, ValueError) as e:
-                print(f"Error parsing instruction in transaction {signature}: {e}")
+                        # Validate account index
+                        if acc >= account_keys_count:
+                            print(f"ERROR: Invalid account index {acc}")
+                else:
+                    print("No accounts found in instruction")
+
+                # Debug: Print instruction data
+                if hasattr(ix, 'data'):
+                    print(f"Instruction Data (base58): {ix.data}")
+                    try:
+                        data_bytes = base58.b58decode(ix.data)
+                        print(f"Instruction Data (bytes): {data_bytes.hex()}")
+                    except Exception as e:
+                        print(f"Error decoding instruction data: {e}")
+                else:
+                    print("No instruction data found")
+
+            except Exception as e:
+                print(f"Error processing instruction {ix_index}: {e}")
                 continue
 
+        # If no transaction could be parsed, return None
         return None
 
     except Exception as e:
