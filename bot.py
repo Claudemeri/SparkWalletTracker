@@ -330,21 +330,32 @@ async def parse_transaction(signature: str, wallet_address: str) -> Optional[Tra
 
         # Parse transaction instructions
         for ix in message.instructions:
-            program_id = str(ix.program_id)
+            # Get program ID from account keys
+            program_id = str(message.account_keys[ix.program_id_index])
             
             # Check if it's a Jupiter or Raydium swap
             if program_id in [JUPITER_PROGRAM_ID, RAYDIUM_PROGRAM_ID]:
+                # Get account indices from instruction
+                account_indices = ix.accounts
+                # Convert indices to actual account addresses
+                accounts = [str(message.account_keys[idx]) for idx in account_indices]
+                
                 # Extract token addresses and amounts
                 # This is a simplified version - you'll need to implement the actual parsing
                 # based on the specific DEX program's instruction format
-                token_address = str(ix.accounts[1])  # Example: token account
-                amount = float(ix.data[1:9]) / 1e9  # Example: amount in lamports
+                token_address = accounts[1] if len(accounts) > 1 else None  # Example: token account
+                if not token_address:
+                    continue
+
+                # Parse data as bytes
+                data_bytes = base58.b58decode(ix.data)
+                amount = float(int.from_bytes(data_bytes[1:9], 'little')) / 1e9 if len(data_bytes) >= 9 else 0
                 price = 1.0  # You'll need to implement price fetching
                 
                 # Convert wallet address to Pubkey for comparison
                 wallet_pubkey = Pubkey.from_string(wallet_address)
                 # Determine if it's a buy or sell by comparing the first account with wallet
-                is_buy = ix.accounts[0] == wallet_pubkey
+                is_buy = accounts[0] == str(wallet_pubkey)
                 
                 return Transaction(
                     signature=signature,
@@ -360,6 +371,8 @@ async def parse_transaction(signature: str, wallet_address: str) -> Optional[Tra
         print(f"Error accessing transaction attributes for {signature}: {e}")
     except Exception as e:
         print(f"Error parsing transaction {signature}: {e}")
+        import traceback
+        traceback.print_exc()
     return None
 
 async def check_transactions():
