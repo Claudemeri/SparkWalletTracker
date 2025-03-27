@@ -203,6 +203,63 @@ class WalletTracker:
             }
         return None
 
+    def get_activity_summary(self, wallet_address):
+        try:
+            # Get transactions for the wallet
+            transactions = self.transactions.get(wallet_address, [])
+            if not transactions:
+                return "No transactions found for this wallet."
+
+            # Group transactions by token
+            token_activity = {}
+            for tx in transactions:
+                token_account = tx.get('token_account')
+                if not token_account:
+                    continue
+
+                if token_account not in token_activity:
+                    token_activity[token_account] = {
+                        'buys': 0,
+                        'sells': 0,
+                        'total_bought': 0,
+                        'total_sold': 0,
+                        'last_activity': 0
+                    }
+
+                activity = token_activity[token_account]
+                amount = tx.get('amount', 0)
+                timestamp = tx.get('timestamp', 0)
+
+                if tx.get('type') == 'buy':
+                    activity['buys'] += 1
+                    activity['total_bought'] += amount
+                else:
+                    activity['sells'] += 1
+                    activity['total_sold'] += amount
+
+                activity['last_activity'] = max(activity['last_activity'], timestamp)
+
+            # Format the summary
+            summary = f"📊 *Activity Summary for {wallet_address[:8]}...{wallet_address[-8:]}*\n\n"
+            
+            for token_account, activity in token_activity.items():
+                # Get token name from tracked tokens if available
+                token_name = self.tracked_tokens.get(token_account, {}).get('name', 'Unknown Token')
+                short_token = f"{token_account[:8]}...{token_account[-8:]}"
+                
+                summary += f"*{token_name}* (`{short_token}`)\n"
+                summary += f"• Buys: {activity['buys']}\n"
+                summary += f"• Sells: {activity['sells']}\n"
+                summary += f"• Total Bought: {activity['total_bought'] / 1e9:.2f}\n"
+                summary += f"• Total Sold: {activity['total_sold'] / 1e9:.2f}\n"
+                summary += f"• Last Activity: {datetime.fromtimestamp(activity['last_activity']).strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+
+            return summary
+
+        except Exception as e:
+            print(f"Error generating summary: {e}")
+            return "Error generating summary. Please try again."
+
 # Initialize wallet tracker
 wallet_tracker = WalletTracker()
 
@@ -401,104 +458,105 @@ async def rate_limited_request(func, *args, **kwargs):
     
     return None
 
-async def parse_transaction(signature: str, wallet_address: str) -> Optional[Transaction]:
+def parse_transaction(tx_data, wallet_address):
     try:
-        # Get transaction details with rate limiting
-        tx_response = await rate_limited_request(
-            solana_client.get_transaction,
-            signature,
-            max_supported_transaction_version=0
-        )
-        if not tx_response or not tx_response.value:
+        # Get the message from the transaction
+        message = tx_data.get('transaction', {}).get('message', {})
+        if not message:
             return None
 
-        tx = tx_response.value
-        timestamp = tx.block_time or int(datetime.now().timestamp())
-
-        # Get the transaction message from the correct structure
-        if hasattr(tx.transaction, 'transaction'):
-            # Handle versioned transaction
-            message = tx.transaction.transaction.message
-        elif hasattr(tx.transaction, 'message'):
-            # Handle legacy transaction
-            message = tx.transaction.message
-        else:
-            print(f"Unexpected transaction structure for {signature}")
+        # Get the program ID index
+        program_id_index = message.get('accountKeys', [])
+        if not program_id_index:
             return None
 
-        # Parse transaction instructions
-        for ix in message.instructions:
+        # Get the instructions
+        instructions = message.get('instructions', [])
+        if not instructions:
+            return None
+
+        # Get the account keys
+        account_keys = message.get('accountKeys', [])
+        if not account_keys:
+            return None
+
+        # Process each instruction
+        for instruction in instructions:
             try:
-                # Safely get program ID index and validate it
-                if not hasattr(ix, 'program_id_index') or ix.program_id_index >= len(message.account_keys):
+                # Get program ID
+                program_id_index = instruction.get('programIdIndex')
+                if program_id_index is None or program_id_index >= len(account_keys):
                     continue
-                
-                # Get program ID from account keys
-                program_id = str(message.account_keys[ix.program_id_index])
-                
-                # Check if it's a Jupiter or Raydium swap
-                if program_id in [JUPITER_PROGRAM_ID, RAYDIUM_PROGRAM_ID]:
-                    # Get all account keys for reference
-                    all_accounts = [str(key) for key in message.account_keys]
-                    
-                    # Safely get account indices and validate them
-                    if not hasattr(ix, 'accounts') or not ix.accounts:
-                        continue
-                    
-                    # Find the token account (usually the second account, but could be in other positions)
-                    token_account = None
-                    wallet_found = False
-                    wallet_pubkey = str(Pubkey.from_string(wallet_address))
-                    
-                    # Look through all accounts to find the wallet and token
-                    for idx in ix.accounts:
-                        if idx >= len(all_accounts):
-                            print(f"Skipping invalid account index {idx} in transaction {signature}")
-                            continue
-                            
-                        account = all_accounts[idx]
-                        if account == wallet_pubkey:
-                            wallet_found = True
-                        elif account != program_id:  # Potential token account
-                            token_account = account
-                    
-                    if not wallet_found or not token_account:
+                program_id = account_keys[program_id_index]
+
+                # Get accounts
+                accounts = instruction.get('accounts', [])
+                if not accounts:
+                    continue
+
+                # Convert account indices to actual addresses
+                account_addresses = []
+                for idx in accounts:
+                    if idx < len(account_keys):
+                        account_addresses.append(account_keys[idx])
+                    else:
+                        print(f"Skipping invalid account index {idx} in transaction {tx_data.get('transaction', {}).get('signatures', [''])[0]}")
                         continue
 
-                    # Safely parse data
+                if len(account_addresses) < 2:
+                    continue
+
+                # Get data
+                data = instruction.get('data', '')
+                if not data:
+                    continue
+
+                # Try to decode the data
+                try:
+                    decoded_data = base58.b58decode(data)
+                except Exception:
+                    continue
+
+                # Check if this is a token program instruction
+                if program_id == TOKEN_PROGRAM_ID:
+                    # Find the token account and determine if it's a buy or sell
+                    token_account = None
+                    for addr in account_addresses:
+                        if addr != wallet_address:
+                            token_account = addr
+                            break
+
+                    if not token_account:
+                        continue
+
+                    # Determine if it's a buy or sell based on the wallet's position
+                    is_buy = wallet_address in account_addresses
+                    is_sell = not is_buy
+
+                    # Get the token amount from the data
                     try:
-                        data_bytes = base58.b58decode(ix.data) if hasattr(ix, 'data') and ix.data else None
-                        amount = float(int.from_bytes(data_bytes[1:9], 'little')) / 1e9 if data_bytes and len(data_bytes) >= 9 else 0
-                    except (ValueError, IndexError) as e:
-                        print(f"Error parsing data in transaction {signature}: {e}")
-                        amount = 0
-                        
-                    price = 1.0  # You'll need to implement price fetching
-                    
-                    return Transaction(
-                        signature=str(signature),  # Ensure signature is a string
-                        timestamp=timestamp,
-                        token_address=token_account,
-                        amount=amount,
-                        price=price,
-                        is_buy=wallet_found  # If wallet is found in accounts, it's likely a buy
-                    )
-            except (IndexError, ValueError) as e:
-                print(f"Error parsing instruction in transaction {signature}: {e}")
-                continue
+                        # The amount is typically in the last 8 bytes of the data
+                        amount_bytes = decoded_data[-8:]
+                        amount = int.from_bytes(amount_bytes, 'little')
+                    except Exception:
+                        continue
+
+                    return {
+                        'type': 'buy' if is_buy else 'sell',
+                        'token_account': token_account,
+                        'amount': amount,
+                        'timestamp': tx_data.get('blockTime', 0)
+                    }
+
             except Exception as e:
-                print(f"Unexpected error parsing instruction in transaction {signature}: {e}")
+                print(f"Error parsing instruction in transaction {tx_data.get('transaction', {}).get('signatures', [''])[0]}: {str(e)}")
                 continue
-                
-    except ValueError as e:
-        print(f"Error with address format in transaction {signature}: {e}")
-    except AttributeError as e:
-        print(f"Error accessing transaction attributes for {signature}: {e}")
+
+        return None
+
     except Exception as e:
-        print(f"Error parsing transaction {signature}: {e}")
-        import traceback
-        traceback.print_exc()
-    return None
+        print(f"Error parsing transaction {tx_data.get('transaction', {}).get('signatures', [''])[0]}: {str(e)}")
+        return None
 
 async def check_transactions():
     while True:
@@ -585,80 +643,6 @@ def run_async_tasks():
     loop.run_until_complete(start_web_server())
     loop.run_until_complete(check_transactions())
     loop.run_forever()
-
-def get_activity_summary(hours: int = 24) -> str:
-    """Generate activity summary for the last n hours"""
-    now = datetime.now()
-    cutoff_time = int((now - timedelta(hours=hours)).timestamp())
-    
-    # Track token activity
-    token_activity = {}
-    wallet_activity = {}
-    
-    # Process all transactions
-    for wallet_addr, transactions in wallet_tracker.transactions.items():
-        wallet_name = wallet_tracker.get_wallet_name(wallet_addr)
-        wallet_profit = 0
-        wallet_tx_count = 0
-        
-        for tx in transactions:
-            if tx['timestamp'] >= cutoff_time:
-                token_addr = tx['token_address']
-                if token_addr not in token_activity:
-                    token_activity[token_addr] = {
-                        'volume': 0,
-                        'wallets': set(),
-                        'tx_count': 0,
-                        'name': token_addr[:6] + '...' + token_addr[-4:]  # Shorten token address
-                    }
-                
-                # Update token activity
-                token_activity[token_addr]['volume'] += tx['total_value']
-                token_activity[token_addr]['wallets'].add(wallet_addr)
-                token_activity[token_addr]['tx_count'] += 1
-                
-                # Update wallet activity
-                wallet_profit += tx['total_value'] if not tx['is_buy'] else -tx['total_value']
-                wallet_tx_count += 1
-        
-        if wallet_tx_count > 0:
-            wallet_activity[wallet_addr] = {
-                'name': wallet_name,
-                'profit': wallet_profit,
-                'tx_count': wallet_tx_count
-            }
-    
-    # Sort tokens by volume
-    sorted_tokens = sorted(
-        [(addr, data) for addr, data in token_activity.items()],
-        key=lambda x: x[1]['volume'],
-        reverse=True
-    )[:10]  # Top 10 tokens
-    
-    # Sort wallets by profit
-    sorted_wallets = sorted(
-        [(addr, data) for addr, data in wallet_activity.items()],
-        key=lambda x: x[1]['profit'],
-        reverse=True
-    )[:4]  # Top 4 wallets
-    
-    # Build the summary message
-    message = f"📊 *Activity Summary (Last {hours} Hours)*\n\n"
-    
-    # Most traded tokens section
-    message += "🔥 *Most Traded Tokens:*\n"
-    for token_addr, data in sorted_tokens:
-        message += (
-            f"`{data['name']}`: {data['volume']:.2f} SOL | "
-            f"{len(data['wallets'])} wallets | {data['tx_count']} txs _(more)_\n"
-        )
-    
-    message += "\n💰 *Top Performing Wallets:*\n"
-    for wallet_addr, data in sorted_wallets:
-        profit_str = f"+{data['profit']:.2f}" if data['profit'] >= 0 else f"{data['profit']:.2f}"
-        message += f"{data['name']}: 📈 `{profit_str} SOL` | {data['tx_count']} txs _(more)_\n"
-    
-    return message
 
 def summary(update, context: CallbackContext):
     summary_text = get_activity_summary()
