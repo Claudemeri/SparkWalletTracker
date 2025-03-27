@@ -306,8 +306,11 @@ def handle_track_sells(update, context: CallbackContext, token_address: str):
 
 async def parse_transaction(signature: str, wallet_address: str) -> Optional[Transaction]:
     try:
-        # Get transaction details
-        tx_response = await solana_client.get_transaction(signature)
+        # Get transaction details with max supported version
+        tx_response = await solana_client.get_transaction(
+            signature,
+            max_supported_transaction_version=0  # Support legacy and versioned transactions
+        )
         if not tx_response.value:
             return None
 
