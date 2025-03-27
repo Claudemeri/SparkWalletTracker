@@ -367,26 +367,42 @@ async def parse_transaction(signature: str, wallet_address: str) -> Optional[Tra
         # Parse transaction instructions
         for ix in message.instructions:
             try:
+                # Safely get program ID index and validate it
+                if not hasattr(ix, 'program_id_index') or ix.program_id_index >= len(message.account_keys):
+                    continue
+                
                 # Get program ID from account keys
                 program_id = str(message.account_keys[ix.program_id_index])
                 
                 # Check if it's a Jupiter or Raydium swap
                 if program_id in [JUPITER_PROGRAM_ID, RAYDIUM_PROGRAM_ID]:
-                    # Get account indices from instruction
-                    account_indices = ix.accounts
-                    # Convert indices to actual account addresses
-                    accounts = [str(message.account_keys[idx]) for idx in account_indices]
+                    # Safely get account indices and validate them
+                    if not hasattr(ix, 'accounts') or not ix.accounts:
+                        continue
+                        
+                    # Convert indices to actual account addresses, with validation
+                    accounts = []
+                    for idx in ix.accounts:
+                        if idx >= len(message.account_keys):
+                            print(f"Invalid account index {idx} in transaction {signature}")
+                            continue
+                        accounts.append(str(message.account_keys[idx]))
                     
-                    # Extract token addresses and amounts
-                    # This is a simplified version - you'll need to implement the actual parsing
-                    # based on the specific DEX program's instruction format
-                    token_address = accounts[1] if len(accounts) > 1 else None  # Example: token account
-                    if not token_address:
+                    # Need at least 2 accounts for token operations
+                    if len(accounts) < 2:
                         continue
 
-                    # Parse data as bytes
-                    data_bytes = base58.b58decode(ix.data)
-                    amount = float(int.from_bytes(data_bytes[1:9], 'little')) / 1e9 if len(data_bytes) >= 9 else 0
+                    # Extract token addresses and amounts
+                    token_address = accounts[1]  # Second account is typically the token account
+                    
+                    # Safely parse data
+                    try:
+                        data_bytes = base58.b58decode(ix.data) if hasattr(ix, 'data') and ix.data else None
+                        amount = float(int.from_bytes(data_bytes[1:9], 'little')) / 1e9 if data_bytes and len(data_bytes) >= 9 else 0
+                    except (ValueError, IndexError) as e:
+                        print(f"Error parsing data in transaction {signature}: {e}")
+                        amount = 0
+                        
                     price = 1.0  # You'll need to implement price fetching
                     
                     # Convert wallet address to Pubkey for comparison
@@ -404,6 +420,9 @@ async def parse_transaction(signature: str, wallet_address: str) -> Optional[Tra
                     )
             except (IndexError, ValueError) as e:
                 print(f"Error parsing instruction in transaction {signature}: {e}")
+                continue
+            except Exception as e:
+                print(f"Unexpected error parsing instruction in transaction {signature}: {e}")
                 continue
                 
     except ValueError as e:
