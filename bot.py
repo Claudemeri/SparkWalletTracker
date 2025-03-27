@@ -5,7 +5,7 @@ import base58
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from dotenv import load_dotenv
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext
 from solana.rpc.async_api import AsyncClient
 from solana.rpc.commitment import Commitment
@@ -172,7 +172,7 @@ class WalletTracker:
 # Initialize wallet tracker
 wallet_tracker = WalletTracker()
 
-async def start(update: Update, context: CallbackContext):
+def start(update, context: CallbackContext):
     keyboard = [
         [InlineKeyboardButton("Add Wallet", callback_data='add_wallet')],
         [InlineKeyboardButton("Remove Wallet", callback_data='remove_wallet')],
@@ -180,70 +180,70 @@ async def start(update: Update, context: CallbackContext):
         [InlineKeyboardButton("Toggle Alerts", callback_data='toggle_alerts')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(
+    update.message.reply_text(
         'Welcome to Solana Wallet Tracker! Choose an option:',
         reply_markup=reply_markup
     )
 
-async def button_handler(update: Update, context: CallbackContext):
+def button_handler(update, context: CallbackContext):
     query = update.callback_query
-    await query.answer()
+    query.answer()
 
     if query.data == 'add_wallet':
-        await query.message.reply_text(
+        query.message.reply_text(
             'Please send the wallet address and name in format:\n/addwallet <address> <name>'
         )
     elif query.data == 'remove_wallet':
-        await query.message.reply_text(
+        query.message.reply_text(
             'Please send the wallet address to remove:\n/removewallet <address>'
         )
     elif query.data == 'list_wallets':
         if not wallet_tracker.wallets:
-            await query.message.reply_text('No wallets are being tracked.')
+            query.message.reply_text('No wallets are being tracked.')
         else:
             wallet_list = '\n'.join([f"{name} ({addr})" for addr, name in wallet_tracker.wallets.items()])
-            await query.message.reply_text(f'Tracked Wallets:\n{wallet_list}')
+            query.message.reply_text(f'Tracked Wallets:\n{wallet_list}')
     elif query.data == 'toggle_alerts':
         wallet_tracker.alerts_enabled = not wallet_tracker.alerts_enabled
         status = 'enabled' if wallet_tracker.alerts_enabled else 'disabled'
-        await query.message.reply_text(f'Alerts have been {status}')
+        query.message.reply_text(f'Alerts have been {status}')
     elif query.data.startswith('track_sells_'):
         token_address = query.data.replace('track_sells_', '')
-        await handle_track_sells(update, context, token_address)
+        handle_track_sells(update, context, token_address)
 
-async def add_wallet(update: Update, context: CallbackContext):
+def add_wallet(update, context: CallbackContext):
     try:
         address, name = context.args
         wallet_tracker.add_wallet(address, name)
-        await update.message.reply_text(f'Added wallet {name} ({address})')
+        update.message.reply_text(f'Added wallet {name} ({address})')
     except ValueError:
-        await update.message.reply_text('Please provide both address and name:\n/addwallet <address> <name>')
+        update.message.reply_text('Please provide both address and name:\n/addwallet <address> <name>')
 
-async def remove_wallet(update: Update, context: CallbackContext):
+def remove_wallet(update, context: CallbackContext):
     try:
         address = context.args[0]
         if wallet_tracker.remove_wallet(address):
-            await update.message.reply_text(f'Removed wallet {address}')
+            update.message.reply_text(f'Removed wallet {address}')
         else:
-            await update.message.reply_text('Wallet not found')
+            update.message.reply_text('Wallet not found')
     except IndexError:
-        await update.message.reply_text('Please provide a wallet address:\n/removewallet <address>')
+        update.message.reply_text('Please provide a wallet address:\n/removewallet <address>')
 
-async def track_token(update: Update, context: CallbackContext):
+def track_token(update, context: CallbackContext):
     try:
         token_address = context.args[0]
         wallet_tracker.add_tracked_token(token_address, list(wallet_tracker.wallets.keys()))
-        await update.message.reply_text(f'Now tracking token {token_address} for all wallets')
+        update.message.reply_text(f'Now tracking token {token_address} for all wallets')
     except IndexError:
-        await update.message.reply_text('Please provide a token address:\n/tracktoken <address>')
+        update.message.reply_text('Please provide a token address:\n/tracktoken <address>')
 
-async def handle_track_sells(update: Update, context: CallbackContext, token_address: str):
+def handle_track_sells(update, context: CallbackContext, token_address: str):
     keyboard = [
         [InlineKeyboardButton("Track Multi-Sells Only", callback_data=f'multi_sells_{token_address}')],
         [InlineKeyboardButton("Track All Sells", callback_data=f'all_sells_{token_address}')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.callback_query.message.reply_text(
+    update.callback_query.message.reply_text(
         'Choose how to track sells:',
         reply_markup=reply_markup
     )
