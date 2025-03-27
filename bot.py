@@ -458,105 +458,103 @@ async def rate_limited_request(func, *args, **kwargs):
     
     return None
 
-def parse_transaction(tx_data, wallet_address):
+async def parse_transaction(signature: str, wallet_address: str) -> Optional[Transaction]:
     try:
-        # Get the message from the transaction
-        message = tx_data.get('transaction', {}).get('message', {})
-        if not message:
+        # Get transaction details with rate limiting
+        tx_response = await rate_limited_request(
+            solana_client.get_transaction,
+            signature,
+            max_supported_transaction_version=0
+        )
+        if not tx_response or not tx_response.value:
             return None
 
-        # Get the program ID index
-        program_id_index = message.get('accountKeys', [])
-        if not program_id_index:
+        tx = tx_response.value
+        timestamp = tx.block_time or int(datetime.now().timestamp())
+
+        # Get the transaction message from the correct structure
+        if hasattr(tx.transaction, 'transaction'):
+            # Handle versioned transaction
+            message = tx.transaction.transaction.message
+        elif hasattr(tx.transaction, 'message'):
+            # Handle legacy transaction
+            message = tx.transaction.message
+        else:
+            print(f"Unexpected transaction structure for {signature}")
             return None
 
-        # Get the instructions
-        instructions = message.get('instructions', [])
-        if not instructions:
-            return None
-
-        # Get the account keys
-        account_keys = message.get('accountKeys', [])
-        if not account_keys:
-            return None
-
-        # Process each instruction
-        for instruction in instructions:
+        # Parse transaction instructions
+        for ix in message.instructions:
             try:
-                # Get program ID
-                program_id_index = instruction.get('programIdIndex')
-                if program_id_index is None or program_id_index >= len(account_keys):
-                    continue
-                program_id = account_keys[program_id_index]
-
-                # Get accounts
-                accounts = instruction.get('accounts', [])
-                if not accounts:
+                # Safely get program ID index and validate it
+                if not hasattr(ix, 'program_id_index') or ix.program_id_index >= len(message.account_keys):
                     continue
 
-                # Convert account indices to actual addresses
-                account_addresses = []
-                for idx in accounts:
-                    if idx < len(account_keys):
-                        account_addresses.append(account_keys[idx])
-                    else:
-                        print(f"Skipping invalid account index {idx} in transaction {tx_data.get('transaction', {}).get('signatures', [''])[0]}")
+                # Get program ID from account keys
+                program_id = str(message.account_keys[ix.program_id_index])
+                
+                # Check if it's a Jupiter or Raydium swap
+                if program_id in [JUPITER_PROGRAM_ID, RAYDIUM_PROGRAM_ID]:
+                    # Get all account keys for reference
+                    all_accounts = [str(key) for key in message.account_keys]
+                    
+                    # Safely get account indices and validate them
+                    if not hasattr(ix, 'accounts') or not ix.accounts:
                         continue
 
-                if len(account_addresses) < 2:
-                    continue
-
-                # Get data
-                data = instruction.get('data', '')
-                if not data:
-                    continue
-
-                # Try to decode the data
-                try:
-                    decoded_data = base58.b58decode(data)
-                except Exception:
-                    continue
-
-                # Check if this is a token program instruction
-                if program_id == TOKEN_PROGRAM_ID:
-                    # Find the token account and determine if it's a buy or sell
+                    # Find the token account (usually the second account, but could be in other positions)
                     token_account = None
-                    for addr in account_addresses:
-                        if addr != wallet_address:
-                            token_account = addr
-                            break
+                    wallet_found = False
+                    wallet_pubkey = str(Pubkey.from_string(wallet_address))
+                    
+                    # Look through all accounts to find the wallet and token
+                    for idx in ix.accounts:
+                        if idx >= len(all_accounts):
+                            print(f"Skipping invalid account index {idx} in transaction {signature}")
+                            continue
+                            
+                        account = all_accounts[idx]
+                        if account == wallet_pubkey:
+                            wallet_found = True
+                        elif account != program_id:  # Potential token account
+                            token_account = account
 
-                    if not token_account:
+                    if not wallet_found or not token_account:
                         continue
 
-                    # Determine if it's a buy or sell based on the wallet's position
-                    is_buy = wallet_address in account_addresses
-                    is_sell = not is_buy
-
-                    # Get the token amount from the data
+                    # Safely parse data
                     try:
-                        # The amount is typically in the last 8 bytes of the data
-                        amount_bytes = decoded_data[-8:]
-                        amount = int.from_bytes(amount_bytes, 'little')
-                    except Exception:
-                        continue
-
-                    return {
-                        'type': 'buy' if is_buy else 'sell',
-                        'token_account': token_account,
-                        'amount': amount,
-                        'timestamp': tx_data.get('blockTime', 0)
-                    }
-
-            except Exception as e:
-                print(f"Error parsing instruction in transaction {tx_data.get('transaction', {}).get('signatures', [''])[0]}: {str(e)}")
+                        data_bytes = base58.b58decode(ix.data) if hasattr(ix, 'data') and ix.data else None
+                        amount = float(int.from_bytes(data_bytes[1:9], 'little')) / 1e9 if data_bytes and len(data_bytes) >= 9 else 0
+                    except (ValueError, IndexError) as e:
+                        print(f"Error parsing data in transaction {signature}: {e}")
+                        amount = 0
+                        
+                    price = 1.0  # You'll need to implement price fetching
+                    
+                    return Transaction(
+                        signature=str(signature),  # Ensure signature is a string
+                        timestamp=timestamp,
+                        token_address=token_account,
+                        amount=amount,
+                        price=price,
+                        is_buy=wallet_found  # If wallet is found in accounts, it's likely a buy
+                    )
+            except (IndexError, ValueError) as e:
+                print(f"Error parsing instruction in transaction {signature}: {e}")
                 continue
 
         return None
 
+    except ValueError as e:
+        print(f"Error with address format in transaction {signature}: {e}")
+    except AttributeError as e:
+        print(f"Error accessing transaction attributes for {signature}: {e}")
     except Exception as e:
-        print(f"Error parsing transaction {tx_data.get('transaction', {}).get('signatures', [''])[0]}: {str(e)}")
-        return None
+        print(f"Error parsing transaction {signature}: {e}")
+        import traceback
+        traceback.print_exc()
+    return None
 
 async def check_transactions():
     while True:
@@ -578,7 +576,7 @@ async def check_transactions():
                 if response and response.value:
                     for sig in response.value:
                         # Parse and store transaction
-                        tx = await parse_transaction(sig.signature, address)
+                        tx = await parse_transaction(str(sig.signature), address)
                         if tx:
                             wallet_tracker.add_transaction(address, tx)
                             
