@@ -179,6 +179,7 @@ def start(update, context: CallbackContext):
         [InlineKeyboardButton("Add Wallet", callback_data='add_wallet')],
         [InlineKeyboardButton("Remove Wallet", callback_data='remove_wallet')],
         [InlineKeyboardButton("List Wallets", callback_data='list_wallets')],
+        [InlineKeyboardButton("Track Token", callback_data='track_token')],
         [InlineKeyboardButton("Toggle Alerts", callback_data='toggle_alerts')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -192,20 +193,29 @@ def button_handler(update, context: CallbackContext):
     query.answer()
 
     if query.data == 'add_wallet':
-        # Store the user's state to indicate they're in the add wallet flow
         context.user_data['state'] = 'waiting_for_wallet_address'
         query.message.reply_text(
             'Please send me the wallet address you want to track.'
         )
     elif query.data == 'remove_wallet':
-        query.message.reply_text(
-            'Please send the wallet address to remove:\n/removewallet <address>'
-        )
+        context.user_data['state'] = 'waiting_for_wallet_to_remove'
+        if not wallet_tracker.wallets:
+            query.message.reply_text('No wallets are being tracked.')
+            context.user_data.clear()
+            return
+        
+        # Create a keyboard with wallet options
+        keyboard = []
+        for addr, data in wallet_tracker.wallets.items():
+            keyboard.append([InlineKeyboardButton(data['name'], callback_data=f'remove_{addr}')])
+        keyboard.append([InlineKeyboardButton("Cancel", callback_data='cancel')])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        query.message.reply_text('Select a wallet to remove:', reply_markup=reply_markup)
     elif query.data == 'list_wallets':
         if not wallet_tracker.wallets:
             query.message.reply_text('No wallets are being tracked.')
         else:
-            wallet_list = '\n'.join([f"{name} ({addr})" for addr, name in wallet_tracker.wallets.items()])
+            wallet_list = '\n'.join([f"{data['name']} ({addr})" for addr, data in wallet_tracker.wallets.items()])
             query.message.reply_text(f'Tracked Wallets:\n{wallet_list}')
     elif query.data == 'toggle_alerts':
         wallet_tracker.alerts_enabled = not wallet_tracker.alerts_enabled
@@ -214,6 +224,16 @@ def button_handler(update, context: CallbackContext):
     elif query.data.startswith('track_sells_'):
         token_address = query.data.replace('track_sells_', '')
         handle_track_sells(update, context, token_address)
+    elif query.data.startswith('remove_'):
+        address = query.data.replace('remove_', '')
+        if wallet_tracker.remove_wallet(address):
+            query.message.reply_text(f'Removed wallet {wallet_tracker.get_wallet_name(address)} ({address})')
+        else:
+            query.message.reply_text('Failed to remove wallet')
+        context.user_data.clear()
+    elif query.data == 'cancel':
+        query.message.reply_text('Operation cancelled.')
+        context.user_data.clear()
 
 def handle_message(update, context: CallbackContext):
     # Check if user is in the add wallet flow
@@ -230,32 +250,11 @@ def handle_message(update, context: CallbackContext):
         update.message.reply_text(f'Added wallet {wallet_name} ({wallet_address})')
         # Clear the user's state
         context.user_data.clear()
-
-def add_wallet(update, context: CallbackContext):
-    try:
-        address, name = context.args
-        wallet_tracker.add_wallet(address, name)
-        update.message.reply_text(f'Added wallet {name} ({address})')
-    except ValueError:
-        update.message.reply_text('Please provide both address and name:\n/addwallet <address> <name>')
-
-def remove_wallet(update, context: CallbackContext):
-    try:
-        address = context.args[0]
-        if wallet_tracker.remove_wallet(address):
-            update.message.reply_text(f'Removed wallet {address}')
-        else:
-            update.message.reply_text('Wallet not found')
-    except IndexError:
-        update.message.reply_text('Please provide a wallet address:\n/removewallet <address>')
-
-def track_token(update, context: CallbackContext):
-    try:
-        token_address = context.args[0]
+    elif context.user_data.get('state') == 'waiting_for_token_address':
+        token_address = update.message.text
         wallet_tracker.add_tracked_token(token_address, list(wallet_tracker.wallets.keys()))
         update.message.reply_text(f'Now tracking token {token_address} for all wallets')
-    except IndexError:
-        update.message.reply_text('Please provide a token address:\n/tracktoken <address>')
+        context.user_data.clear()
 
 def handle_track_sells(update, context: CallbackContext, token_address: str):
     keyboard = [
@@ -389,9 +388,6 @@ def main():
 
     # Add handlers
     dispatcher.add_handler(CommandHandler("start", start))
-    dispatcher.add_handler(CommandHandler("addwallet", add_wallet))
-    dispatcher.add_handler(CommandHandler("removewallet", remove_wallet))
-    dispatcher.add_handler(CommandHandler("tracktoken", track_token))
     dispatcher.add_handler(CallbackQueryHandler(button_handler))
     dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
 
