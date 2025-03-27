@@ -310,7 +310,13 @@ def button_handler(update, context: CallbackContext):
     query.answer()
 
     if query.data == 'show_summary':
-        summary_text = get_activity_summary()
+        # Get the first wallet address for summary
+        if wallet_tracker.wallets:
+            first_wallet = list(wallet_tracker.wallets.keys())[0]
+            summary_text = wallet_tracker.get_activity_summary(first_wallet)
+        else:
+            summary_text = "No wallets are being tracked. Add a wallet first!"
+        
         keyboard = [[InlineKeyboardButton("⬅️ Back to Menu", callback_data='show_menu')]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         query.message.edit_text(summary_text, parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
