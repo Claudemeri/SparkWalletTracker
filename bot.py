@@ -671,7 +671,7 @@ def verify_webhook_signature(request_body, signature):
     return hmac.compare_digest(signature, expected_signature)
 
 @app.route('/webhook', methods=['POST'])
-async def webhook_handler():
+def webhook_handler():
     """Handle incoming webhooks from Helius"""
     try:
         # Get the signature from headers
@@ -701,65 +701,74 @@ async def webhook_handler():
             involved_wallets = [acc for acc in accounts if acc in wallet_tracker.wallets]
             
             if involved_wallets:
-                # Parse and store the transaction
-                tx = await parse_transaction(signature, involved_wallets[0])
-                if tx:
-                    # Store transaction for each involved wallet
-                    for wallet in involved_wallets:
-                        wallet_tracker.add_transaction(wallet, tx)
-                    
-                    # Check for multi-buy pattern
-                    if len(involved_wallets) >= 3:  # If 3 or more tracked wallets are involved
-                        # Get all recent transactions with the same description
-                        recent_txs = []
-                        for wallet in wallet_tracker.wallets:
-                            wallet_txs = wallet_tracker.transactions.get(wallet, [])
-                            for t in wallet_txs:
-                                if (t.get('description') == description and 
-                                    t.get('timestamp') > int(datetime.now().timestamp()) - 3600):  # Last hour
-                                    recent_txs.append(t)
+                # Create an event loop for async operations
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                try:
+                    # Parse and store the transaction
+                    tx = loop.run_until_complete(parse_transaction(signature, involved_wallets[0]))
+                    if tx:
+                        # Store transaction for each involved wallet
+                        for wallet in involved_wallets:
+                            wallet_tracker.add_transaction(wallet, tx)
                         
-                        # If we have 3 or more recent transactions with the same description
-                        if len(recent_txs) >= 3:
-                            # Send multi-buy notification
-                            message = f"🚨 Multi-Buy Alert!\n\n"
-                            message += f"Description: {description}\n"
-                            message += f"Total Value: {sum(tx.get('amount', 0) for tx in recent_txs):.2f} SOL\n\n"
-                            message += "Wallets that participated:\n"
-                            
-                            # Group transactions by wallet
-                            wallet_txs = {}
-                            for tx in recent_txs:
-                                wallet = tx.get('wallet_address')
-                                if wallet not in wallet_txs:
-                                    wallet_txs[wallet] = []
-                                wallet_txs[wallet].append(tx)
-                            
-                            # Add wallet details to message
-                            for wallet, transactions in wallet_txs.items():
-                                wallet_name = wallet_tracker.get_wallet_name(wallet)
-                                total = sum(tx.get('amount', 0) for tx in transactions)
-                                message += f"- {wallet_name}: {total:.2f} SOL\n"
-                            
-                            # Add tracking options
-                            keyboard = [[
-                                InlineKeyboardButton(
-                                    "Track Sells",
-                                    callback_data=f'track_sells_{tx.token_address}'
-                                )
-                            ]]
-                            reply_markup = InlineKeyboardMarkup(keyboard)
-                            
-                            # Send notification to all tracked wallets
+                        # Check for multi-buy pattern
+                        if len(involved_wallets) >= 3:  # If 3 or more tracked wallets are involved
+                            # Get all recent transactions with the same description
+                            recent_txs = []
                             for wallet in wallet_tracker.wallets:
-                                try:
-                                    await context.bot.send_message(
-                                        chat_id=wallet,
-                                        text=message,
-                                        reply_markup=reply_markup
+                                wallet_txs = wallet_tracker.transactions.get(wallet, [])
+                                for t in wallet_txs:
+                                    if (t.get('description') == description and 
+                                        t.get('timestamp') > int(datetime.now().timestamp()) - 3600):  # Last hour
+                                        recent_txs.append(t)
+                            
+                            # If we have 3 or more recent transactions with the same description
+                            if len(recent_txs) >= 3:
+                                # Send multi-buy notification
+                                message = f"🚨 Multi-Buy Alert!\n\n"
+                                message += f"Description: {description}\n"
+                                message += f"Total Value: {sum(tx.get('amount', 0) for tx in recent_txs):.2f} SOL\n\n"
+                                message += "Wallets that participated:\n"
+                                
+                                # Group transactions by wallet
+                                wallet_txs = {}
+                                for tx in recent_txs:
+                                    wallet = tx.get('wallet_address')
+                                    if wallet not in wallet_txs:
+                                        wallet_txs[wallet] = []
+                                    wallet_txs[wallet].append(tx)
+                                
+                                # Add wallet details to message
+                                for wallet, transactions in wallet_txs.items():
+                                    wallet_name = wallet_tracker.get_wallet_name(wallet)
+                                    total = sum(tx.get('amount', 0) for tx in transactions)
+                                    message += f"- {wallet_name}: {total:.2f} SOL\n"
+                                
+                                # Add tracking options
+                                keyboard = [[
+                                    InlineKeyboardButton(
+                                        "Track Sells",
+                                        callback_data=f'track_sells_{tx.token_address}'
                                     )
-                                except Exception as e:
-                                    print(f"Error sending notification to {wallet}: {e}")
+                                ]]
+                                reply_markup = InlineKeyboardMarkup(keyboard)
+                                
+                                # Send notification to all tracked wallets
+                                for wallet in wallet_tracker.wallets:
+                                    try:
+                                        loop.run_until_complete(
+                                            context.bot.send_message(
+                                                chat_id=wallet,
+                                                text=message,
+                                                reply_markup=reply_markup
+                                            )
+                                        )
+                                    except Exception as e:
+                                        print(f"Error sending notification to {wallet}: {e}")
+                finally:
+                    loop.close()
 
         return jsonify({'status': 'success'}), 200
 
