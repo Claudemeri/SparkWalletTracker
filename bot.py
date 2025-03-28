@@ -60,13 +60,14 @@ async def health_check(request):
     return web.Response(text="Bot is running!")
 
 class Transaction:
-    def __init__(self, signature: str, timestamp: int, token_address: str, amount: float, price: float, is_buy: bool):
-        self.signature = str(signature)  # Ensure signature is a string
+    def __init__(self, signature: str, timestamp: int, token_address: str, amount: float, price: float, is_buy: bool, description: str = ''):
+        self.signature = signature
         self.timestamp = timestamp
         self.token_address = token_address
         self.amount = amount
         self.price = price
         self.is_buy = is_buy
+        self.description = description
         self.total_value = amount * price
 
     def to_dict(self):
@@ -77,6 +78,7 @@ class Transaction:
             'amount': self.amount,
             'price': self.price,
             'is_buy': self.is_buy,
+            'description': self.description,
             'total_value': self.total_value
         }
 
@@ -555,7 +557,8 @@ async def parse_transaction(signature: str, wallet_address: str) -> Optional[Tra
                         token_address=token_account,
                         amount=amount,
                         price=price,
-                        is_buy=wallet_found
+                        is_buy=wallet_found,
+                        description=message.get_instruction_data(ix)
                     )
             except Exception as e:
                 print(f"Error processing instruction in transaction {signature}: {e}")
@@ -701,29 +704,54 @@ async def webhook_handler():
             transaction = data.get('transaction', {})
             signature = transaction.get('signature')
             
+            # Get transaction description
+            description = transaction.get('description', '')
+            
             # Get the accounts involved
             accounts = transaction.get('accounts', [])
             
             # Check if any of our tracked wallets are involved
-            for account in accounts:
-                if account in wallet_tracker.wallets:
-                    # Parse and store the transaction
-                    tx = await parse_transaction(signature, account)
-                    if tx:
-                        wallet_tracker.add_transaction(account, tx)
+            involved_wallets = [acc for acc in accounts if acc in wallet_tracker.wallets]
+            
+            if involved_wallets:
+                # Parse and store the transaction
+                tx = await parse_transaction(signature, involved_wallets[0])
+                if tx:
+                    # Store transaction for each involved wallet
+                    for wallet in involved_wallets:
+                        wallet_tracker.add_transaction(wallet, tx)
+                    
+                    # Check for multi-buy pattern
+                    if len(involved_wallets) >= 3:  # If 3 or more tracked wallets are involved
+                        # Get all recent transactions with the same description
+                        recent_txs = []
+                        for wallet in wallet_tracker.wallets:
+                            wallet_txs = wallet_tracker.transactions.get(wallet, [])
+                            for t in wallet_txs:
+                                if (t.get('description') == description and 
+                                    t.get('timestamp') > int(datetime.now().timestamp()) - 3600):  # Last hour
+                                    recent_txs.append(t)
                         
-                        # Check for multi-buys
-                        multi_buy = wallet_tracker.detect_multi_buys(tx.token_address)
-                        if multi_buy and not wallet_tracker.tracked_tokens[tx.token_address].get('multi_buy_detected'):
+                        # If we have 3 or more recent transactions with the same description
+                        if len(recent_txs) >= 3:
                             # Send multi-buy notification
                             message = f"🚨 Multi-Buy Alert!\n\n"
-                            message += f"Token: {tx.token_address}\n"
-                            message += f"Total Value: {multi_buy['total_value']:.2f} SOL\n\n"
-                            message += "Wallets that bought:\n"
+                            message += f"Description: {description}\n"
+                            message += f"Total Value: {sum(tx.get('amount', 0) for tx in recent_txs):.2f} SOL\n\n"
+                            message += "Wallets that participated:\n"
                             
-                            for wallet, transactions in multi_buy['wallets'].items():
+                            # Group transactions by wallet
+                            wallet_txs = {}
+                            for tx in recent_txs:
+                                wallet = tx.get('wallet_address')
+                                if wallet not in wallet_txs:
+                                    wallet_txs[wallet] = []
+                                wallet_txs[wallet].append(tx)
+                            
+                            # Add wallet details to message
+                            for wallet, transactions in wallet_txs.items():
                                 wallet_name = wallet_tracker.get_wallet_name(wallet)
-                                total = sum(tx.total_value for tx in transactions)
+                                total = sum(tx.get('amount', 0) for tx in transactions)
                                 message += f"- {wallet_name}: {total:.2f} SOL\n"
                             
                             # Add tracking options
@@ -745,10 +773,6 @@ async def webhook_handler():
                                     )
                                 except Exception as e:
                                     print(f"Error sending notification to {wallet}: {e}")
-                            
-                            # Mark multi-buy as detected
-                            wallet_tracker.tracked_tokens[tx.token_address]['multi_buy_detected'] = True
-                            wallet_tracker.save_tracked_tokens()
 
         return jsonify({'status': 'success'}), 200
 

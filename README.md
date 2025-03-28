@@ -1,228 +1,122 @@
 # Solana Wallet Tracker Bot
 
-A Telegram bot that tracks Solana wallet transactions and provides notifications for multi-buy and multi-sell events.
+A Telegram bot for tracking Solana wallet transactions and detecting multi-buy patterns.
 
 ## Features
 
 - Track multiple Solana wallets
-- Receive notifications for multi-buy events (when multiple tracked wallets buy the same token within 6 hours)
-- Track token sales with options for multi-sell and individual sell notifications
-- Add/remove wallets and toggle alerts through Telegram commands
-- Persistent storage of wallet data
+- Real-time transaction monitoring via Helius webhooks
+- Multi-buy pattern detection
+- Token tracking
+- Activity summaries
+- Customizable alerts
 
-## Prerequisites
+## Setup
 
-1. **Telegram Bot Token**
+1. Clone the repository:
 
-   - Open Telegram and search for [@BotFather](https://t.me/botfather)
-   - Start a chat and send `/newbot`
-   - Follow the prompts to create your bot
-   - Save the API token provided by BotFather
+```bash
+git clone https://github.com/Claudemeri/SparkWalletTracker.git
+cd SparkWalletTracker
+```
 
-2. **Solana RPC URL**
+2. Install dependencies:
 
-   - Option 1: Use a public RPC URL (not recommended for production)
-     - Default: `https://api.mainnet-beta.solana.com`
-   - Option 2: Get a dedicated RPC URL (recommended)
-     - Sign up for [QuickNode](https://www.quicknode.com/) or [Alchemy](https://www.alchemy.com/)
-     - Create a new Solana endpoint
-     - Copy the HTTP endpoint URL
+```bash
+pip install -r requirements.txt
+```
 
-3. **Replit Account**
+3. Create a `.env` file with the following variables:
 
-   - Go to [replit.com](https://replit.com)
-   - Sign up for a free account
-   - Verify your email address
+```env
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+SOLANA_RPC_URL=your_solana_rpc_url
+HELIUS_WEBHOOK_SECRET=your_helius_webhook_secret
+PORT=8080  # Optional, defaults to 8080
+```
 
-4. **UptimeRobot Account**
-   - Go to [uptimerobot.com](https://uptimerobot.com)
-   - Sign up for a free account
-   - Verify your email address
+4. Set up Helius webhook:
 
-## Detailed Setup Instructions
+   - Go to [Helius Dashboard](https://dev.helius.xyz/dashboard)
+   - Create a new webhook
+   - Set the webhook URL to your bot's URL + `/webhook` (e.g., `https://your-bot-url.com/webhook`)
+   - Get the webhook secret and add it to your `.env` file
+   - Configure the webhook to track transaction events
 
-### 1. Deploy on Replit
+5. Run the bot:
 
-#### Step 1: Create New Repl
+```bash
+python bot.py
+```
 
-1. Go to [replit.com](https://replit.com)
-2. Click the "+ Create" button
-3. Select "Import from GitHub"
-4. Enter this repository's URL
-5. Choose "Python" as the language
-6. Click "Import from GitHub"
+## Usage
 
-#### Step 2: Configure Environment Variables
+### Basic Commands
 
-1. In your Repl, click on "Tools" in the left sidebar
-2. Select "Secrets"
-3. Add the following environment variables:
-   ```
-   TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
-   SOLANA_RPC_URL=your_solana_rpc_url_here
-   PORT=8080
-   ```
-4. Click "Add Secret" for each variable
-5. Make sure to replace the placeholder values with your actual credentials
+- `/start` - Start the bot and show the main menu
+- `/menu` - Show the main menu
+- `/summary` - Show activity summary for tracked wallets
 
-#### Step 3: Install Dependencies
+### Menu Options
 
-1. Open the Repl's shell (bottom panel)
-2. Run the following command:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Wait for the installation to complete
+- 📊 Summary - View transaction summaries
+- ➕ Add Wallet - Add a new wallet to track
+- ➖ Remove Wallet - Remove a tracked wallet
+- 📝 List Wallets - View all tracked wallets
+- 🔍 Track Token - Add a new token to track
+- 🔔 Toggle Alerts - Enable/disable transaction alerts
 
-#### Step 4: Start the Bot
+### Multi-Buy Detection
 
-1. Click the "Run" button at the top of the Repl
-2. Wait for the bot to start
-3. You should see messages indicating:
-   - "Web server started on port 8080"
-   - "Bot started successfully"
+The bot automatically detects when multiple tracked wallets buy the same token within a short time period (default: 6 hours). When detected, it:
 
-#### Step 5: Get Your Repl's URL
+1. Sends notifications to all tracked wallets
+2. Shows the total value of buys
+3. Lists all wallets that participated
+4. Offers options to track sells for the token
 
-1. Click the "Open in new tab" button (looks like a box with an arrow)
-2. Copy the URL from your browser
-3. The URL should look like: `https://your-repl-name.your-username.repl.co`
-4. Save this URL for the UptimeRobot setup
+## Configuration
 
-### 2. Configure UptimeRobot
+### Rate Limiting
 
-#### Step 1: Create New Monitor
+The bot includes built-in rate limiting to prevent API throttling:
 
-1. Log in to your UptimeRobot dashboard
-2. Click "Add New Monitor"
-3. Select "HTTP(s)" as the monitor type
-4. Click "Next"
+- Default delay between requests: 200ms
+- Maximum retries: 3
+- Retry delay: 1 second (exponential backoff)
 
-#### Step 2: Configure Monitor Settings
+### Multi-Buy Settings
 
-1. **Basic Settings**
+You can adjust these settings in the `WalletTracker` class:
 
-   - Friendly Name: "Solana Wallet Tracker"
-   - URL: Paste your Repl's URL from Step 5 above
-   - Monitoring Interval: 5 minutes
-   - Timeout: 30 seconds
-   - Alert When: Down
+- `multi_buy_threshold`: Time window for multi-buy detection (default: 6 hours)
+- `min_buys_for_alert`: Minimum number of wallets that need to buy (default: 2)
 
-2. **Advanced Settings**
+## Security
 
-   - Keyword: "Bot is running!"
-   - Port: 443
-   - HTTP Method: GET
-   - HTTP Headers: Leave empty
-   - HTTP Username: Leave empty
-   - HTTP Password: Leave empty
-   - HTTP Post Data: Leave empty
+- Webhook signatures are verified using HMAC-SHA256
+- All sensitive data is stored in environment variables
+- Rate limiting prevents API abuse
+- Input validation for all user commands
 
-3. **Alert Settings**
+## Error Handling
 
-   - Click "Add Alert Contact"
-   - Choose your preferred notification method:
-     - Email: Enter your email address
-     - SMS: Enter your phone number
-     - Webhook: Enter your webhook URL
-   - Set alert when: Down
-   - Set alert after: 1 failure
-   - Set alert every: 5 minutes
+The bot includes comprehensive error handling for:
 
-4. **Click "Create Monitor"**
-
-#### Step 3: Verify Monitor
-
-1. Wait for the first check (usually within 5 minutes)
-2. Check the monitor status:
-   - Green: Bot is running
-   - Red: Bot is down
-3. Test notifications by clicking "Test" in the monitor settings
-
-### 3. Test the Bot
-
-#### Step 1: Start Chat with Bot
-
-1. Open Telegram
-2. Search for your bot's username
-3. Click "Start" or send `/start`
-4. You should see the welcome message with buttons
-
-#### Step 2: Add Test Wallet
-
-1. Click "Add Wallet" button
-2. Send the command in format:
-   ```
-   /addwallet <wallet_address> <wallet_name>
-   ```
-3. Example:
-   ```
-   /addwallet 5ZWj7a1f8tWkjBESHKgrLmXshuXxqeY9SYcfbshpAqPG TestWallet
-   ```
-
-#### Step 3: Verify Notifications
-
-1. Wait for transactions to be detected
-2. You should receive notifications for:
-   - Multi-buy events
-   - Option to track sells
-   - Wallet updates
-
-## Troubleshooting Guide
-
-### Common Issues and Solutions
-
-1. **Bot Not Responding**
-
-   - Check Replit console for errors
-   - Verify environment variables are set correctly
-   - Ensure bot token is valid
-   - Check UptimeRobot status
-
-2. **Transactions Not Detected**
-
-   - Verify wallet address format
-   - Check RPC URL status
-   - Ensure sufficient RPC credits
-   - Verify transaction history exists
-
-3. **Notifications Not Working**
-
-   - Check if bot is blocked
-   - Verify chat is started
-   - Check alert settings
-   - Ensure bot has message permissions
-
-4. **Repl Sleeping Issues**
-   - Verify UptimeRobot is pinging correctly
-   - Check Repl's URL is accessible
-   - Ensure web server is running
-   - Consider upgrading to Hacker plan
-
-### Monitoring and Maintenance
-
-1. **Regular Checks**
-
-   - Monitor UptimeRobot dashboard daily
-   - Check Replit console for errors
-   - Verify bot responses
-   - Test notifications periodically
-
-2. **Performance Optimization**
-   - Monitor RPC usage
-   - Check transaction processing speed
-   - Verify data storage size
-   - Optimize if needed
-
-## Support
-
-If you encounter any issues:
-
-1. Check the troubleshooting guide
-2. Review the error logs in Replit console
-3. Check UptimeRobot status
-4. Contact support if issues persist
+- Invalid wallet addresses
+- Network issues
+- API rate limits
+- Transaction parsing errors
+- Webhook verification failures
 
 ## Contributing
 
-Feel free to submit issues and enhancement requests!
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
