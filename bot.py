@@ -13,7 +13,6 @@ from solana.rpc.commitment import Commitment
 from solders.pubkey import Pubkey
 from solders.instruction import Instruction
 from solders.message import Message
-from aiohttp import web
 import threading
 import time
 from httpx import HTTPStatusError
@@ -37,10 +36,6 @@ TRANSACTIONS_FILE = 'transactions.json'
 JUPITER_PROGRAM_ID = "JUP4Fb2cqiRUcaTHdrPC8h2gNsA2ETXiPDD33WcGuJB"
 RAYDIUM_PROGRAM_ID = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
 
-# Web server setup
-app = web.Application()
-routes = web.RouteTableDef()
-
 # Rate limiting settings
 RATE_LIMIT_DELAY = 0.2  # 200ms between requests
 MAX_RETRIES = 3
@@ -55,9 +50,9 @@ app = Flask(__name__)
 # Helius webhook secret (you'll need to set this in your environment)
 HELIUS_WEBHOOK_SECRET = os.getenv('HELIUS_WEBHOOK_SECRET')
 
-@routes.get('/')
-async def health_check(request):
-    return web.Response(text="Bot is running!")
+@app.route('/')
+def health_check():
+    return "Bot is running!"
 
 class Transaction:
     def __init__(self, signature: str, timestamp: int, token_address: str, amount: float, price: float, is_buy: bool, description: str = ''):
@@ -644,17 +639,9 @@ async def check_transactions():
 
         await asyncio.sleep(60)  # Check every minute
 
-async def start_web_server():
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', int(os.getenv('PORT', '8080')))
-    await site.start()
-    print(f"Web server started on port {os.getenv('PORT', '8080')}")
-
 def run_async_tasks():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    loop.run_until_complete(start_web_server())
     loop.run_until_complete(check_transactions())
     loop.run_forever()
 
@@ -794,12 +781,16 @@ def main():
     dispatcher.add_handler(CallbackQueryHandler(button_handler))
     dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
 
-    # Add web routes
-    app.add_routes(routes)
-
     # Start async tasks in a separate thread
     async_thread = threading.Thread(target=run_async_tasks, daemon=True)
     async_thread.start()
+
+    # Start the Flask server in a separate thread
+    flask_thread = threading.Thread(
+        target=lambda: app.run(host='0.0.0.0', port=int(os.getenv('PORT', '8080'))),
+        daemon=True
+    )
+    flask_thread.start()
 
     # Start the bot
     updater.start_polling()
