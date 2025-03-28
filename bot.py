@@ -18,6 +18,9 @@ import threading
 import time
 from httpx import HTTPStatusError
 from solders.signature import Signature
+from flask import Flask, request, jsonify
+import hmac
+import hashlib
 
 # Load environment variables
 load_dotenv()
@@ -45,6 +48,12 @@ RETRY_DELAY = 1  # 1 second between retries
 
 # Last request timestamp
 last_request_time = 0
+
+# Initialize Flask app
+app = Flask(__name__)
+
+# Helius webhook secret (you'll need to set this in your environment)
+HELIUS_WEBHOOK_SECRET = os.getenv('HELIUS_WEBHOOK_SECRET')
 
 @routes.get('/')
 async def health_check(request):
@@ -657,6 +666,95 @@ def summary(update, context: CallbackContext):
     keyboard = [[InlineKeyboardButton("⬅️ Back to Menu", callback_data='show_menu')]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     update.message.reply_text(summary_text, parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
+
+def verify_webhook_signature(request_body, signature):
+    """Verify the webhook signature from Helius"""
+    if not HELIUS_WEBHOOK_SECRET:
+        return False
+    
+    expected_signature = hmac.new(
+        HELIUS_WEBHOOK_SECRET.encode(),
+        request_body,
+        hashlib.sha256
+    ).hexdigest()
+    
+    return hmac.compare_digest(signature, expected_signature)
+
+@app.route('/webhook', methods=['POST'])
+async def webhook_handler():
+    """Handle incoming webhooks from Helius"""
+    try:
+        # Get the signature from headers
+        signature = request.headers.get('X-Helius-Signature')
+        if not signature:
+            return jsonify({'error': 'No signature provided'}), 401
+
+        # Verify the signature
+        if not verify_webhook_signature(request.get_data(), signature):
+            return jsonify({'error': 'Invalid signature'}), 401
+
+        # Parse the webhook data
+        data = request.get_json()
+        
+        # Process the transaction
+        if data.get('type') == 'TRANSACTION':
+            transaction = data.get('transaction', {})
+            signature = transaction.get('signature')
+            
+            # Get the accounts involved
+            accounts = transaction.get('accounts', [])
+            
+            # Check if any of our tracked wallets are involved
+            for account in accounts:
+                if account in wallet_tracker.wallets:
+                    # Parse and store the transaction
+                    tx = await parse_transaction(signature, account)
+                    if tx:
+                        wallet_tracker.add_transaction(account, tx)
+                        
+                        # Check for multi-buys
+                        multi_buy = wallet_tracker.detect_multi_buys(tx.token_address)
+                        if multi_buy and not wallet_tracker.tracked_tokens[tx.token_address].get('multi_buy_detected'):
+                            # Send multi-buy notification
+                            message = f"🚨 Multi-Buy Alert!\n\n"
+                            message += f"Token: {tx.token_address}\n"
+                            message += f"Total Value: {multi_buy['total_value']:.2f} SOL\n\n"
+                            message += "Wallets that bought:\n"
+                            
+                            for wallet, transactions in multi_buy['wallets'].items():
+                                wallet_name = wallet_tracker.get_wallet_name(wallet)
+                                total = sum(tx.total_value for tx in transactions)
+                                message += f"- {wallet_name}: {total:.2f} SOL\n"
+                            
+                            # Add tracking options
+                            keyboard = [[
+                                InlineKeyboardButton(
+                                    "Track Sells",
+                                    callback_data=f'track_sells_{tx.token_address}'
+                                )
+                            ]]
+                            reply_markup = InlineKeyboardMarkup(keyboard)
+                            
+                            # Send notification to all tracked wallets
+                            for wallet in wallet_tracker.wallets:
+                                try:
+                                    await context.bot.send_message(
+                                        chat_id=wallet,
+                                        text=message,
+                                        reply_markup=reply_markup
+                                    )
+                                except Exception as e:
+                                    print(f"Error sending notification to {wallet}: {e}")
+                            
+                            # Mark multi-buy as detected
+                            wallet_tracker.tracked_tokens[tx.token_address]['multi_buy_detected'] = True
+                            wallet_tracker.save_tracked_tokens()
+
+        return jsonify({'status': 'success'}), 200
+
+    except Exception as e:
+        print(f"Error processing webhook: {e}")
+        return jsonify({'error': str(e)}), 500
 
 def main():
     # Create the Updater and pass it your bot's token
