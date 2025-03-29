@@ -55,27 +55,40 @@ MORALIS_API_KEY = os.getenv('MORALIS_API_KEY')
 MORALIS_API_URL = "https://solana-gateway.moralis.io/account/mainnet"
 
 class WalletTracker:
+    """
+    A class to manage wallet tracking, token monitoring, and transaction analysis.
+    Handles storage and retrieval of wallet data, token tracking, and transaction monitoring.
+    """
+
     def __init__(self):
-        self.wallets = {}  # Changed from set to dict to store name and address
-        self.tracked_tokens = {}
-        self.transactions = {}
-        self.alerts_enabled = True
-        self.load_data()
+        """
+        Initialize the WalletTracker with empty data structures.
+        Sets up dictionaries for wallets, tracked tokens, and transactions.
+        """
+        self.wallets = {}  # Dictionary to store wallet addresses and their details
+        self.tracked_tokens = {}  # Dictionary to store tracked token information
+        self.transactions = {}  # Dictionary to store transaction history
+        self.alerts_enabled = True  # Flag to control alert notifications
+        self.load_data()  # Load existing data from files
         logging.info("WalletTracker initialized")
 
     def load_data(self):
-        """Load wallets, tracked tokens, and transactions from JSON files"""
+        """
+        Load all data from JSON files in the data directory.
+        Creates the data directory and files if they don't exist.
+        Handles errors gracefully by initializing empty data structures if loading fails.
+        """
         try:
             # Create data directory if it doesn't exist
             data_dir = Path("data")
             data_dir.mkdir(exist_ok=True)
             
-            # Define file paths
+            # Define file paths for data storage
             wallets_file = data_dir / "tracked_wallets.json"
             tokens_file = data_dir / "tracked_tokens.json"
             transactions_file = data_dir / "transactions.json"
             
-            # Create files if they don't exist
+            # Create files with empty data structures if they don't exist
             if not wallets_file.exists():
                 wallets_file.write_text("{}")
             if not tokens_file.exists():
@@ -83,7 +96,7 @@ class WalletTracker:
             if not transactions_file.exists():
                 transactions_file.write_text("{}")
             
-            # Load wallets
+            # Load wallets with error handling
             try:
                 with open(wallets_file, 'r') as f:
                     self.wallets = json.load(f)
@@ -92,7 +105,7 @@ class WalletTracker:
                 logging.error(f"Error loading wallets: {e}")
                 self.wallets = {}
             
-            # Load tracked tokens
+            # Load tracked tokens with error handling
             try:
                 with open(tokens_file, 'r') as f:
                     self.tracked_tokens = json.load(f)
@@ -101,7 +114,7 @@ class WalletTracker:
                 logging.error(f"Error loading tracked tokens: {e}")
                 self.tracked_tokens = {}
             
-            # Load transactions
+            # Load transactions with error handling
             try:
                 with open(transactions_file, 'r') as f:
                     self.transactions = json.load(f)
@@ -117,23 +130,27 @@ class WalletTracker:
             self.transactions = {}
 
     def save_data(self):
-        """Save wallets, tracked tokens, and transactions to JSON files"""
+        """
+        Save all data to JSON files in the data directory.
+        Creates the data directory if it doesn't exist.
+        Handles errors gracefully and logs any issues.
+        """
         try:
             # Create data directory if it doesn't exist
             data_dir = Path("data")
             data_dir.mkdir(exist_ok=True)
             
-            # Save wallets
+            # Save wallets to file
             with open(data_dir / "tracked_wallets.json", 'w') as f:
                 json.dump(self.wallets, f)
             logging.info(f"Saved {len(self.wallets)} wallets")
             
-            # Save tracked tokens
+            # Save tracked tokens to file
             with open(data_dir / "tracked_tokens.json", 'w') as f:
                 json.dump(self.tracked_tokens, f)
             logging.info(f"Saved {len(self.tracked_tokens)} tracked tokens")
             
-            # Save transactions
+            # Save transactions to file
             with open(data_dir / "transactions.json", 'w') as f:
                 json.dump(self.transactions, f)
             logging.info(f"Saved {len(self.transactions)} transaction records")
@@ -142,6 +159,15 @@ class WalletTracker:
             logging.error(f"Error in save_data: {e}")
 
     def add_wallet(self, address, name):
+        """
+        Add a new wallet to track.
+        
+        Args:
+            address (str): The wallet address to track
+            name (str): A friendly name for the wallet
+            
+        Logs the addition and saves the updated data.
+        """
         wallet_logger.info(f"Adding wallet {name} ({address})")
         self.wallets[address] = {
             'name': name,
@@ -151,6 +177,17 @@ class WalletTracker:
         wallet_logger.info(f"Wallet {name} ({address}) added successfully")
 
     def remove_wallet(self, address):
+        """
+        Remove a wallet from tracking.
+        
+        Args:
+            address (str): The wallet address to remove
+            
+        Returns:
+            bool: True if wallet was removed, False if not found
+            
+        Logs the removal and saves the updated data.
+        """
         wallet_logger.info(f"Attempting to remove wallet {address}")
         if address in self.wallets:
             wallet_name = self.wallets[address]['name']
@@ -162,12 +199,30 @@ class WalletTracker:
         return False
 
     def get_wallet_name(self, address):
+        """
+        Get the friendly name of a wallet.
+        
+        Args:
+            address (str): The wallet address
+            
+        Returns:
+            str: The wallet's friendly name or address if name not found
+        """
         wallet_logger.debug(f"Getting name for wallet {address}")
         name = self.wallets.get(address, {}).get('name', address)
         wallet_logger.debug(f"Wallet {address} name: {name}")
         return name
 
     def add_tracked_token(self, token_address, wallets):
+        """
+        Add a new token to track for specified wallets.
+        
+        Args:
+            token_address (str): The token address to track
+            wallets (list): List of wallet addresses to track the token for
+            
+        Logs the addition and saves the updated data.
+        """
         token_logger.info(f"Adding tracked token {token_address} for {len(wallets)} wallets")
         self.tracked_tokens[token_address] = {
             'wallets': wallets,
@@ -177,6 +232,17 @@ class WalletTracker:
         token_logger.info(f"Token {token_address} added successfully")
 
     def remove_tracked_token(self, token_address):
+        """
+        Remove a token from tracking.
+        
+        Args:
+            token_address (str): The token address to remove
+            
+        Returns:
+            bool: True if token was removed, False if not found
+            
+        Logs the removal and saves the updated data.
+        """
         token_logger.info(f"Attempting to remove tracked token {token_address}")
         if token_address in self.tracked_tokens:
             del self.tracked_tokens[token_address]
@@ -187,6 +253,17 @@ class WalletTracker:
         return False
 
     def detect_multi_buys(self, transactions: List[Dict]) -> Optional[Dict]:
+        """
+        Analyze transactions to detect multiple buys of the same token.
+        
+        Args:
+            transactions (List[Dict]): List of transaction dictionaries
+            
+        Returns:
+            Optional[Dict]: Dictionary containing multi-buy information if detected, None otherwise
+            
+        Logs the detection process and results.
+        """
         transaction_logger.info(f"Detecting multi-buys from {len(transactions)} transactions")
         # Group transactions by token
         token_buys = {}
@@ -231,6 +308,17 @@ class WalletTracker:
         return None
 
     def detect_multi_sells(self, transactions: List[Dict]) -> Optional[Dict]:
+        """
+        Analyze transactions to detect multiple sells of the same token.
+        
+        Args:
+            transactions (List[Dict]): List of transaction dictionaries
+            
+        Returns:
+            Optional[Dict]: Dictionary containing multi-sell information if detected, None otherwise
+            
+        Logs the detection process and results.
+        """
         transaction_logger.info(f"Detecting multi-sells from {len(transactions)} transactions")
         # Group transactions by token
         token_sells = {}
@@ -275,6 +363,18 @@ class WalletTracker:
         return None
 
     def is_multi_buy_already_alerted(self, token_address: str, transactions: List[Dict]) -> bool:
+        """
+        Check if a multi-buy has already been alerted to prevent duplicate notifications.
+        
+        Args:
+            token_address (str): The token address to check
+            transactions (List[Dict]): List of transactions to check
+            
+        Returns:
+            bool: True if multi-buy was already alerted, False otherwise
+            
+        Logs the checking process and results.
+        """
         transaction_logger.debug(f"Checking if multi-buy for token {token_address} was already alerted")
         if token_address not in self.transactions:
             transaction_logger.debug(f"No previous transactions found for token {token_address}")
@@ -293,6 +393,18 @@ class WalletTracker:
         return False
 
     def is_multi_sell_already_alerted(self, token_address: str, transactions: List[Dict]) -> bool:
+        """
+        Check if a multi-sell has already been alerted to prevent duplicate notifications.
+        
+        Args:
+            token_address (str): The token address to check
+            transactions (List[Dict]): List of transactions to check
+            
+        Returns:
+            bool: True if multi-sell was already alerted, False otherwise
+            
+        Logs the checking process and results.
+        """
         transaction_logger.debug(f"Checking if multi-sell for token {token_address} was already alerted")
         if token_address not in self.transactions:
             transaction_logger.debug(f"No previous transactions found for token {token_address}")
@@ -311,6 +423,15 @@ class WalletTracker:
         return False
 
     def store_multi_buy(self, token_address: str, transactions: List[Dict]):
+        """
+        Store multi-buy transactions to prevent duplicate alerts.
+        
+        Args:
+            token_address (str): The token address
+            transactions (List[Dict]): List of transactions to store
+            
+        Logs the storage process and saves the updated data.
+        """
         transaction_logger.info(f"Storing multi-buy for token {token_address}")
         if token_address not in self.transactions:
             self.transactions[token_address] = []
@@ -321,6 +442,15 @@ class WalletTracker:
         transaction_logger.info(f"Stored {len(transactions)} transactions for token {token_address}")
 
     def store_multi_sell(self, token_address: str, transactions: List[Dict]):
+        """
+        Store multi-sell transactions to prevent duplicate alerts.
+        
+        Args:
+            token_address (str): The token address
+            transactions (List[Dict]): List of transactions to store
+            
+        Logs the storage process and saves the updated data.
+        """
         transaction_logger.info(f"Storing multi-sell for token {token_address}")
         if token_address not in self.transactions:
             self.transactions[token_address] = []
@@ -334,7 +464,17 @@ class WalletTracker:
 wallet_tracker = WalletTracker()
 
 async def get_recent_transactions(wallet_address: str) -> List[Dict]:
-    """Get recent transactions for a wallet using the Moralis API"""
+    """
+    Fetch recent transactions for a wallet using the Moralis API.
+    
+    Args:
+        wallet_address (str): The wallet address to fetch transactions for
+        
+    Returns:
+        List[Dict]: List of transaction dictionaries
+        
+    Logs the API request process and any errors encountered.
+    """
     try:
         headers = {
             "Accept": "application/json",
@@ -449,7 +589,11 @@ async def get_recent_transactions(wallet_address: str) -> List[Dict]:
         return []
 
 async def check_transactions():
-    """Check recent transactions for all tracked wallets"""
+    """
+    Continuously check for recent transactions and detect multi-buys/sells.
+    Runs in a loop with a 60-second delay between checks.
+    Logs detailed information about transactions and alerts.
+    """
     while True:
         if not wallet_tracker.alerts_enabled:
             logging.info("Alerts are disabled, skipping transaction check")
@@ -583,6 +727,10 @@ async def check_transactions():
         await asyncio.sleep(60)  # Check every minute
 
 def start(update, context: CallbackContext):
+    """
+    Handle the /start command.
+    Displays the main menu with available options.
+    """
     keyboard = [
         [InlineKeyboardButton("➕ Add Wallet", callback_data='add_wallet')],
         [InlineKeyboardButton("➖ Remove Wallet", callback_data='remove_wallet')],
@@ -598,6 +746,10 @@ def start(update, context: CallbackContext):
     )
 
 def show_menu(update, context: CallbackContext):
+    """
+    Display the main menu with available options.
+    Can be called from both message and callback query handlers.
+    """
     keyboard = [
         [InlineKeyboardButton("➕ Add Wallet", callback_data='add_wallet')],
         [InlineKeyboardButton("➖ Remove Wallet", callback_data='remove_wallet')],
@@ -613,6 +765,10 @@ def show_menu(update, context: CallbackContext):
         update.callback_query.message.reply_text("Choose an option:", reply_markup=reply_markup)
 
 def button_handler(update, context: CallbackContext):
+    """
+    Handle button callbacks from the inline keyboard.
+    Manages all menu options and user interactions.
+    """
     query = update.callback_query
     query.answer()
 
@@ -677,6 +833,10 @@ def button_handler(update, context: CallbackContext):
         context.user_data.clear()
 
 def handle_message(update, context: CallbackContext):
+    """
+    Handle text messages from users.
+    Manages the wallet and token addition process.
+    """
     text = update.message.text
     
     if context.user_data.get('state') == 'waiting_for_wallet_address':
@@ -708,6 +868,10 @@ def handle_message(update, context: CallbackContext):
         context.user_data.clear()
 
 def main():
+    """
+    Main function to start the bot.
+    Sets up logging, handlers, and starts the bot.
+    """
     # Create the Updater and pass it your bot's token
     updater = Updater(os.getenv('TELEGRAM_BOT_TOKEN'), use_context=True)
 
@@ -733,6 +897,10 @@ def main():
     updater.idle()
 
 def run_async_tasks():
+    """
+    Run async tasks in a separate thread.
+    Currently runs the transaction checking loop.
+    """
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     loop.run_until_complete(check_transactions())
