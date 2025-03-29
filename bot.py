@@ -56,108 +56,110 @@ MORALIS_API_URL = "https://solana-gateway.moralis.io/account/mainnet"
 
 class WalletTracker:
     def __init__(self):
-        wallet_logger.info("Initializing WalletTracker")
-        self.wallets = self.load_wallets()
-        self.tracked_tokens = self.load_tracked_tokens()
-        self.transactions = self.load_transactions()
+        self.wallets = set()
+        self.tracked_tokens = {}
+        self.transactions = {}
         self.alerts_enabled = True
-        self.multi_buy_threshold = 6  # hours
-        self.min_buys_for_alert = 3   # minimum number of wallets that need to buy
-        self.min_sells_for_alert = 3  # minimum number of wallets that need to sell
-        wallet_logger.info(f"Initialized with {len(self.wallets)} wallets, {len(self.tracked_tokens)} tracked tokens")
+        self.load_data()
+        logging.info("WalletTracker initialized")
 
-    def load_wallets(self):
+    def load_data(self):
+        """Load wallets, tracked tokens, and transactions from JSON files"""
         try:
-            if os.path.exists(WALLETS_FILE):
-                wallet_logger.info(f"Loading wallets from {WALLETS_FILE}")
-                with open(WALLETS_FILE, 'r') as f:
-                    wallets = json.load(f)
-                wallet_logger.info(f"Loaded {len(wallets)} wallets")
-                return wallets
-            wallet_logger.info(f"{WALLETS_FILE} does not exist, creating new file")
-            return {}
-        except json.JSONDecodeError as e:
-            wallet_logger.error(f"Error loading wallets: {e}")
-            print(f"Warning: {WALLETS_FILE} contains invalid JSON. Creating new file.")
-            with open(WALLETS_FILE, 'w') as f:
-                json.dump({}, f)
-            return {}
+            # Create data directory if it doesn't exist
+            data_dir = Path("data")
+            data_dir.mkdir(exist_ok=True)
+            
+            # Define file paths
+            wallets_file = data_dir / "tracked_wallets.json"
+            tokens_file = data_dir / "tracked_tokens.json"
+            transactions_file = data_dir / "transactions.json"
+            
+            # Create files if they don't exist
+            if not wallets_file.exists():
+                wallets_file.write_text("[]")
+            if not tokens_file.exists():
+                tokens_file.write_text("{}")
+            if not transactions_file.exists():
+                transactions_file.write_text("{}")
+            
+            # Load wallets
+            try:
+                with open(wallets_file, 'r') as f:
+                    self.wallets = set(json.load(f))
+                logging.info(f"Loaded {len(self.wallets)} wallets")
+            except Exception as e:
+                logging.error(f"Error loading wallets: {e}")
+                self.wallets = set()
+            
+            # Load tracked tokens
+            try:
+                with open(tokens_file, 'r') as f:
+                    self.tracked_tokens = json.load(f)
+                logging.info(f"Loaded {len(self.tracked_tokens)} tracked tokens")
+            except Exception as e:
+                logging.error(f"Error loading tracked tokens: {e}")
+                self.tracked_tokens = {}
+            
+            # Load transactions
+            try:
+                with open(transactions_file, 'r') as f:
+                    self.transactions = json.load(f)
+                logging.info(f"Loaded {len(self.transactions)} transaction records")
+            except Exception as e:
+                logging.error(f"Error loading transactions: {e}")
+                self.transactions = {}
+                
+        except Exception as e:
+            logging.error(f"Error in load_data: {e}")
+            self.wallets = set()
+            self.tracked_tokens = {}
+            self.transactions = {}
 
-    def load_tracked_tokens(self):
+    def save_data(self):
+        """Save wallets, tracked tokens, and transactions to JSON files"""
         try:
-            if os.path.exists(TRACKED_TOKENS_FILE):
-                token_logger.info(f"Loading tracked tokens from {TRACKED_TOKENS_FILE}")
-                with open(TRACKED_TOKENS_FILE, 'r') as f:
-                    tokens = json.load(f)
-                token_logger.info(f"Loaded {len(tokens)} tracked tokens")
-                return tokens
-            token_logger.info(f"{TRACKED_TOKENS_FILE} does not exist, creating new file")
-            return {}
-        except json.JSONDecodeError as e:
-            token_logger.error(f"Error loading tracked tokens: {e}")
-            print(f"Warning: {TRACKED_TOKENS_FILE} contains invalid JSON. Creating new file.")
-            with open(TRACKED_TOKENS_FILE, 'w') as f:
-                json.dump({}, f)
-            return {}
-
-    def load_transactions(self):
-        try:
-            if os.path.exists(TRANSACTIONS_FILE):
-                transaction_logger.info(f"Loading transactions from {TRANSACTIONS_FILE}")
-                with open(TRANSACTIONS_FILE, 'r') as f:
-                    transactions = json.load(f)
-                transaction_logger.info(f"Loaded transactions for {len(transactions)} tokens")
-                return transactions
-            transaction_logger.info(f"{TRANSACTIONS_FILE} does not exist, creating new file")
-            return {}
-        except json.JSONDecodeError as e:
-            transaction_logger.error(f"Error loading transactions: {e}")
-            print(f"Warning: {TRANSACTIONS_FILE} contains invalid JSON. Creating new file.")
-            with open(TRANSACTIONS_FILE, 'w') as f:
-                json.dump({}, f)
-            return {}
-
-    def save_wallets(self):
-        wallet_logger.info(f"Saving {len(self.wallets)} wallets to {WALLETS_FILE}")
-        with open(WALLETS_FILE, 'w') as f:
-            json.dump(self.wallets, f)
-        wallet_logger.info("Wallets saved successfully")
-
-    def save_tracked_tokens(self):
-        token_logger.info(f"Saving {len(self.tracked_tokens)} tracked tokens to {TRACKED_TOKENS_FILE}")
-        with open(TRACKED_TOKENS_FILE, 'w') as f:
-            json.dump(self.tracked_tokens, f)
-        token_logger.info("Tracked tokens saved successfully")
-
-    def save_transactions(self):
-        transaction_logger.info(f"Saving transactions for {len(self.transactions)} tokens to {TRANSACTIONS_FILE}")
-        with open(TRANSACTIONS_FILE, 'w') as f:
-            json.dump(self.transactions, f)
-        transaction_logger.info("Transactions saved successfully")
+            # Create data directory if it doesn't exist
+            data_dir = Path("data")
+            data_dir.mkdir(exist_ok=True)
+            
+            # Save wallets
+            with open(data_dir / "tracked_wallets.json", 'w') as f:
+                json.dump(list(self.wallets), f)
+            logging.info(f"Saved {len(self.wallets)} wallets")
+            
+            # Save tracked tokens
+            with open(data_dir / "tracked_tokens.json", 'w') as f:
+                json.dump(self.tracked_tokens, f)
+            logging.info(f"Saved {len(self.tracked_tokens)} tracked tokens")
+            
+            # Save transactions
+            with open(data_dir / "transactions.json", 'w') as f:
+                json.dump(self.transactions, f)
+            logging.info(f"Saved {len(self.transactions)} transaction records")
+                
+        except Exception as e:
+            logging.error(f"Error in save_data: {e}")
 
     def add_wallet(self, address, name):
         wallet_logger.info(f"Adding wallet {name} ({address})")
-        self.wallets[address] = {
-            'name': name,
-            'added_at': datetime.now().isoformat()
-        }
-        self.save_wallets()
+        self.wallets.add(address)
+        self.save_data()
         wallet_logger.info(f"Wallet {name} ({address}) added successfully")
 
     def remove_wallet(self, address):
         wallet_logger.info(f"Attempting to remove wallet {address}")
         if address in self.wallets:
-            wallet_name = self.wallets[address]['name']
-            del self.wallets[address]
-            self.save_wallets()
-            wallet_logger.info(f"Wallet {wallet_name} ({address}) removed successfully")
+            self.wallets.remove(address)
+            self.save_data()
+            wallet_logger.info(f"Wallet {address} removed successfully")
             return True
         wallet_logger.warning(f"Wallet {address} not found")
         return False
 
     def get_wallet_name(self, address):
         wallet_logger.debug(f"Getting name for wallet {address}")
-        name = self.wallets.get(address, {}).get('name', address)
+        name = self.wallets.get(address, address)
         wallet_logger.debug(f"Wallet {address} name: {name}")
         return name
 
@@ -167,14 +169,14 @@ class WalletTracker:
             'wallets': wallets,
             'added_at': datetime.now().isoformat()
         }
-        self.save_tracked_tokens()
+        self.save_data()
         token_logger.info(f"Token {token_address} added successfully")
 
     def remove_tracked_token(self, token_address):
         token_logger.info(f"Attempting to remove tracked token {token_address}")
         if token_address in self.tracked_tokens:
             del self.tracked_tokens[token_address]
-            self.save_tracked_tokens()
+            self.save_data()
             token_logger.info(f"Token {token_address} removed successfully")
             return True
         token_logger.warning(f"Token {token_address} not found")
@@ -311,7 +313,7 @@ class WalletTracker:
             
         # Add new transactions
         self.transactions[token_address].extend(transactions)
-        self.save_transactions()
+        self.save_data()
         transaction_logger.info(f"Stored {len(transactions)} transactions for token {token_address}")
 
     def store_multi_sell(self, token_address: str, transactions: List[Dict]):
@@ -321,7 +323,7 @@ class WalletTracker:
             
         # Add new transactions
         self.transactions[token_address].extend(transactions)
-        self.save_transactions()
+        self.save_data()
         transaction_logger.info(f"Stored {len(transactions)} transactions for token {token_address}")
 
 # Initialize wallet tracker
@@ -636,8 +638,8 @@ def button_handler(update, context: CallbackContext):
             return
         
         keyboard = []
-        for addr, data in wallet_tracker.wallets.items():
-            keyboard.append([InlineKeyboardButton(data['name'], callback_data=f'remove_{addr}')])
+        for addr in wallet_tracker.wallets:
+            keyboard.append([InlineKeyboardButton(addr, callback_data=f'remove_{addr}')])
         keyboard.append([InlineKeyboardButton("⬅️ Back to Menu", callback_data='show_menu')])
         reply_markup = InlineKeyboardMarkup(keyboard)
         query.message.edit_text('Select a wallet to remove:', reply_markup=reply_markup)
@@ -645,7 +647,7 @@ def button_handler(update, context: CallbackContext):
         if not wallet_tracker.wallets:
             text = 'No wallets are being tracked.'
         else:
-            text = 'Tracked Wallets:\n' + '\n'.join([f"{data['name']} ({addr})" for addr, data in wallet_tracker.wallets.items()])
+            text = 'Tracked Wallets:\n' + '\n'.join(wallet_tracker.wallets)
         keyboard = [[InlineKeyboardButton("⬅️ Back to Menu", callback_data='show_menu')]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         query.message.edit_text(text, reply_markup=reply_markup)
@@ -658,7 +660,7 @@ def button_handler(update, context: CallbackContext):
     elif query.data.startswith('remove_'):
         address = query.data.replace('remove_', '')
         if wallet_tracker.remove_wallet(address):
-            text = f'Removed wallet {wallet_tracker.get_wallet_name(address)} ({address})'
+            text = f'Removed wallet {address}'
         else:
             text = 'Failed to remove wallet'
         keyboard = [[InlineKeyboardButton("⬅️ Back to Menu", callback_data='show_menu')]]
@@ -692,7 +694,7 @@ def handle_message(update, context: CallbackContext):
         context.user_data.clear()
     elif context.user_data.get('state') == 'waiting_for_token_address':
         token_address = text
-        wallet_tracker.add_tracked_token(token_address, list(wallet_tracker.wallets.keys()))
+        wallet_tracker.add_tracked_token(token_address, list(wallet_tracker.wallets))
         keyboard = [[InlineKeyboardButton("⬅️ Back to Menu", callback_data='show_menu')]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         update.message.reply_text(
