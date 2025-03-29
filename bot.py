@@ -292,8 +292,15 @@ async def get_recent_transactions(wallet_address: str) -> List[Dict]:
                                 token_symbol = bought.get('symbol', '') if is_buy else sold.get('symbol', '')
                                 amount = float(bought.get('amount', 0)) if is_buy else float(sold.get('amount', 0))
                                 
-                                # Get timestamp in seconds (Moralis returns milliseconds)
-                                timestamp = int(tx.get('blockTimestamp', 0)) // 1000
+                                # Parse ISO 8601 timestamp
+                                timestamp_str = tx.get('blockTimestamp', '')
+                                try:
+                                    # Convert ISO 8601 to datetime
+                                    dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                                    timestamp = int(dt.timestamp())
+                                except (ValueError, TypeError) as e:
+                                    print(f"Error parsing timestamp {timestamp_str}: {e}")
+                                    continue
                                 
                                 transaction_data = {
                                     'wallet_address': wallet_address,
