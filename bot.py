@@ -20,6 +20,8 @@ from solders.signature import Signature
 from flask import Flask, request, jsonify
 import hmac
 import hashlib
+import requests
+import aiohttp
 
 # Load environment variables
 load_dotenv()
@@ -49,6 +51,12 @@ app = Flask(__name__)
 
 # Helius webhook secret (you'll need to set this in your environment)
 HELIUS_WEBHOOK_SECRET = os.getenv('HELIUS_WEBHOOK_SECRET')
+
+# API settings
+API_URL = os.getenv('API_URL', 'https://api.example.com')  # Replace with your API URL
+API_KEY = os.getenv('API_KEY')  # Your API key
+MORALIS_API_KEY = os.getenv('MORALIS_API_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6IjcyMGU0ZmI0LTk3Y2QtNGU4ZS04NGUwLTQyZTVmZmY2Y2JiNCIsIm9yZ0lkIjoiNDM4Njc4IiwidXNlcklkIjoiNDUxMzA5IiwidHlwZUlkIjoiYjhlNGZlMDktMzUzNi00YTZkLTkwNjktY2YyYzQxYTQ0MmJhIiwidHlwZSI6IlBST0pFQ1QiLCJpYXQiOjE3NDMyNTQ4MzUsImV4cCI6NDg5OTAxNDgzNX0.2zIfKFA3TsR-ufg5FrLjpVpQIijEKyqbfiYfgDbbJZI')
+MORALIS_API_URL = "https://solana-gateway.moralis.io/account/mainnet"
 
 @app.route('/')
 def health_check():
@@ -84,7 +92,8 @@ class WalletTracker:
         self.transactions = self.load_transactions()
         self.alerts_enabled = True
         self.multi_buy_threshold = 6  # hours
-        self.min_buys_for_alert = 2   # minimum number of wallets that need to buy
+        self.min_buys_for_alert = 3   # minimum number of wallets that need to buy
+        self.min_sells_for_alert = 3  # minimum number of wallets that need to sell
 
     def load_wallets(self):
         try:
@@ -183,32 +192,131 @@ class WalletTracker:
             if tx['timestamp'] >= cutoff_time
         ]
 
-    def detect_multi_buys(self, token_address: str) -> Optional[Dict]:
-        if token_address not in self.tracked_tokens:
-            return None
-
-        tracked_wallets = self.tracked_tokens[token_address]['wallets']
-        recent_buys = {}
-
-        for wallet in tracked_wallets:
-            transactions = self.get_recent_transactions(wallet)
-            for tx in transactions:
-                if tx.token_address == token_address and tx.is_buy:
-                    if wallet not in recent_buys:
-                        recent_buys[wallet] = []
-                    recent_buys[wallet].append(tx)
-
-        if len(recent_buys) >= self.min_buys_for_alert:
-            total_value = sum(
-                sum(tx.total_value for tx in wallet_txs)
-                for wallet_txs in recent_buys.values()
-            )
-            return {
-                'token_address': token_address,
-                'wallets': recent_buys,
-                'total_value': total_value
-            }
+    def detect_multi_buys(self, transactions: List[Dict]) -> Optional[Dict]:
+        """Detect multi-buys from a list of transactions"""
+        # Group transactions by token
+        token_buys = {}
+        
+        for tx in transactions:
+            if not tx.get('is_buy'):
+                continue
+                
+            token_address = tx.get('token_address')
+            if not token_address:
+                continue
+                
+            if token_address not in token_buys:
+                token_buys[token_address] = {
+                    'wallets': set(),
+                    'total_amount': 0,
+                    'token_symbol': tx.get('token_symbol', ''),
+                    'transactions': []
+                }
+            
+            token_buys[token_address]['wallets'].add(tx.get('wallet_address'))
+            token_buys[token_address]['total_amount'] += float(tx.get('amount', 0))
+            token_buys[token_address]['transactions'].append(tx)
+        
+        # Check for multi-buys
+        for token_address, data in token_buys.items():
+            if len(data['wallets']) >= self.min_buys_for_alert:
+                # Check if this multi-buy was already alerted
+                if not self.is_multi_buy_already_alerted(token_address, data['transactions']):
+                    return {
+                        'token_address': token_address,
+                        'token_symbol': data['token_symbol'],
+                        'wallet_count': len(data['wallets']),
+                        'total_amount': data['total_amount'],
+                        'transactions': data['transactions']
+                    }
         return None
+
+    def is_multi_buy_already_alerted(self, token_address: str, transactions: List[Dict]) -> bool:
+        """Check if this multi-buy was already alerted"""
+        if token_address not in self.transactions:
+            return False
+            
+        # Get the signatures of the current transactions
+        current_signatures = {tx.get('signature') for tx in transactions}
+        
+        # Check if any of these transactions were already stored
+        for stored_tx in self.transactions[token_address]:
+            if stored_tx.get('signature') in current_signatures:
+                return True
+                
+        return False
+
+    def store_multi_buy(self, token_address: str, transactions: List[Dict]):
+        """Store multi-buy transactions"""
+        if token_address not in self.transactions:
+            self.transactions[token_address] = []
+            
+        # Add new transactions
+        self.transactions[token_address].extend(transactions)
+        self.save_transactions()
+
+    def detect_multi_sells(self, transactions: List[Dict]) -> Optional[Dict]:
+        """Detect multi-sells from a list of transactions"""
+        # Group transactions by token
+        token_sells = {}
+        
+        for tx in transactions:
+            if not tx.get('is_sell'):
+                continue
+                
+            token_address = tx.get('token_address')
+            if not token_address:
+                continue
+                
+            if token_address not in token_sells:
+                token_sells[token_address] = {
+                    'wallets': set(),
+                    'total_amount': 0,
+                    'token_symbol': tx.get('token_symbol', ''),
+                    'transactions': []
+                }
+            
+            token_sells[token_address]['wallets'].add(tx.get('wallet_address'))
+            token_sells[token_address]['total_amount'] += float(tx.get('amount', 0))
+            token_sells[token_address]['transactions'].append(tx)
+        
+        # Check for multi-sells
+        for token_address, data in token_sells.items():
+            if len(data['wallets']) >= self.min_sells_for_alert:
+                # Check if this multi-sell was already alerted
+                if not self.is_multi_sell_already_alerted(token_address, data['transactions']):
+                    return {
+                        'token_address': token_address,
+                        'token_symbol': data['token_symbol'],
+                        'wallet_count': len(data['wallets']),
+                        'total_amount': data['total_amount'],
+                        'transactions': data['transactions']
+                    }
+        return None
+
+    def is_multi_sell_already_alerted(self, token_address: str, transactions: List[Dict]) -> bool:
+        """Check if this multi-sell was already alerted"""
+        if token_address not in self.transactions:
+            return False
+            
+        # Get the signatures of the current transactions
+        current_signatures = {tx.get('signature') for tx in transactions}
+        
+        # Check if any of these transactions were already stored
+        for stored_tx in self.transactions[token_address]:
+            if stored_tx.get('signature') in current_signatures:
+                return True
+                
+        return False
+
+    def store_multi_sell(self, token_address: str, transactions: List[Dict]):
+        """Store multi-sell transactions"""
+        if token_address not in self.transactions:
+            self.transactions[token_address] = []
+            
+        # Add new transactions
+        self.transactions[token_address].extend(transactions)
+        self.save_transactions()
 
     def get_activity_summary(self, wallet_address):
         try:
@@ -567,75 +675,143 @@ async def parse_transaction(signature: str, wallet_address: str) -> Optional[Tra
         traceback.print_exc()
     return None
 
+async def get_recent_transactions(wallet_address: str) -> List[Dict]:
+    """Get recent transactions for a wallet using the Moralis API"""
+    try:
+        headers = {
+            "Accept": "application/json",
+            "X-API-Key": MORALIS_API_KEY
+        }
+        
+        url = f"{MORALIS_API_URL}/{wallet_address}/swaps?order=DESC"
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    # Transform Moralis data to our format
+                    transactions = []
+                    for tx in data:
+                        # Get transaction type and subcategory
+                        tx_type = tx.get('transactionType', '')
+                        sub_category = tx.get('subCategory', '')
+                        
+                        # Get wallet and token addresses
+                        wallet_address = tx.get('walletAddress', '')
+                        pair_address = tx.get('pairAddress', '')
+                        
+                        # Get transaction details
+                        bought = tx.get('bought', {})
+                        sold = tx.get('sold', {})
+                        
+                        # Determine if it's a buy or sell
+                        is_buy = sub_category == 'newPosition'
+                        is_sell = sub_category == 'sellAll'
+                        
+                        # Only include transactions we want to track
+                        if is_buy or is_sell:
+                            # Get the correct token symbol and amount based on transaction type
+                            token_symbol = bought.get('symbol', '') if is_buy else sold.get('symbol', '')
+                            amount = float(bought.get('amount', 0)) if is_buy else float(sold.get('amount', 0))
+                            
+                            # Get timestamp in seconds (Moralis returns milliseconds)
+                            timestamp = int(tx.get('blockTimestamp', 0)) // 1000
+                            
+                            transaction_data = {
+                                'wallet_address': wallet_address,
+                                'token_address': pair_address,
+                                'token_symbol': token_symbol,
+                                'amount': amount,
+                                'is_buy': is_buy,
+                                'is_sell': is_sell,
+                                'timestamp': timestamp,
+                                'signature': tx.get('signature', ''),
+                                'price': float(tx.get('price', 0)),
+                                'transaction_type': tx_type,
+                                'sub_category': sub_category
+                            }
+                            transactions.append(transaction_data)
+                    return transactions
+                else:
+                    print(f"Error fetching transactions: {response.status}")
+                    return []
+    except Exception as e:
+        print(f"Error in get_recent_transactions: {e}")
+        return []
+
 async def check_transactions():
+    """Check recent transactions for all tracked wallets"""
     while True:
         if not wallet_tracker.alerts_enabled:
             await asyncio.sleep(60)
             continue
 
-        for address in wallet_tracker.wallets:
-            try:
-                # Convert string address to Pubkey
-                pubkey = Pubkey.from_string(address)
-                
-                # Get recent transactions with rate limiting
-                response = await rate_limited_request(
-                    solana_client.get_signatures_for_address,
-                    pubkey
+        try:
+            # Get transactions for all wallets
+            all_transactions = []
+            for address in wallet_tracker.wallets:
+                transactions = await get_recent_transactions(address)
+                all_transactions.extend(transactions)
+            
+            # Filter transactions from the last 6 hours
+            cutoff_time = int((datetime.now() - timedelta(hours=6)).timestamp())
+            recent_transactions = [
+                tx for tx in all_transactions 
+                if tx.get('timestamp', 0) >= cutoff_time
+            ]
+            
+            # Detect multi-buys
+            multi_buy = wallet_tracker.detect_multi_buys(recent_transactions)
+            if multi_buy:
+                # Store the multi-buy
+                wallet_tracker.store_multi_buy(
+                    multi_buy['token_address'],
+                    multi_buy['transactions']
                 )
                 
-                if response and response.value:
-                    for sig in response.value:
-                        # Parse and store transaction
-                        tx = await parse_transaction(str(sig.signature), address)
-                        if tx:
-                            wallet_tracker.add_transaction(address, tx)
-                            
-                            # Check for multi-buys
-                            multi_buy = wallet_tracker.detect_multi_buys(tx.token_address)
-                            if multi_buy and not wallet_tracker.tracked_tokens[tx.token_address].get('multi_buy_detected'):
-                                # Send multi-buy notification
-                                message = f"🚨 Multi-Buy Alert!\n\n"
-                                message += f"Token: {tx.token_address}\n"
-                                message += f"Total Value: {multi_buy['total_value']:.2f} SOL\n\n"
-                                message += "Wallets that bought:\n"
-                                
-                                for wallet, transactions in multi_buy['wallets'].items():
-                                    wallet_name = wallet_tracker.get_wallet_name(wallet)
-                                    total = sum(tx.total_value for tx in transactions)
-                                    message += f"- {wallet_name}: {total:.2f} SOL\n"
-                                
-                                # Add tracking options
-                                keyboard = [[
-                                    InlineKeyboardButton(
-                                        "Track Sells",
-                                        callback_data=f'track_sells_{tx.token_address}'
-                                    )
-                                ]]
-                                reply_markup = InlineKeyboardMarkup(keyboard)
-                                
-                                # Send notification to all tracked wallets
-                                for wallet in wallet_tracker.wallets:
-                                    try:
-                                        await context.bot.send_message(
-                                            chat_id=wallet,
-                                            text=message,
-                                            reply_markup=reply_markup
-                                        )
-                                    except Exception as e:
-                                        print(f"Error sending notification to {wallet}: {e}")
-                                
-                                # Mark multi-buy as detected
-                                wallet_tracker.tracked_tokens[tx.token_address]['multi_buy_detected'] = True
-                                wallet_tracker.save_tracked_tokens()
-                                
-            except ValueError as e:
-                print(f"Error with wallet address format {address}: {e}")
-            except Exception as e:
-                print(f"Error checking transactions for {address}: {e}")
+                # Format and send alert
+                message = f"🟢 Multi Buy Alert!\n\n"
+                message += f"{multi_buy['wallet_count']} wallets bought {multi_buy['token_symbol']} in the last 6 hours!\n"
+                message += f"Total: {multi_buy['total_amount']:.2f} SOL\n\n"
+                message += f"{multi_buy['token_address']}"
+                
+                # Send to all tracked wallets
+                for wallet in wallet_tracker.wallets:
+                    try:
+                        await context.bot.send_message(
+                            chat_id=wallet,
+                            text=message
+                        )
+                    except Exception as e:
+                        print(f"Error sending notification to {wallet}: {e}")
 
-            # Add a small delay between checking different wallets
-            await asyncio.sleep(RATE_LIMIT_DELAY)
+            # Detect multi-sells
+            multi_sell = wallet_tracker.detect_multi_sells(recent_transactions)
+            if multi_sell:
+                # Store the multi-sell
+                wallet_tracker.store_multi_sell(
+                    multi_sell['token_address'],
+                    multi_sell['transactions']
+                )
+                
+                # Format and send alert
+                message = f"🔴 Multi Sell Alert!\n\n"
+                message += f"{multi_sell['wallet_count']} wallets sold {multi_sell['token_symbol']} in the last 6 hours!\n"
+                message += f"Total: {multi_sell['total_amount']:.2f} SOL\n\n"
+                message += f"{multi_sell['token_address']}"
+                
+                # Send to all tracked wallets
+                for wallet in wallet_tracker.wallets:
+                    try:
+                        await context.bot.send_message(
+                            chat_id=wallet,
+                            text=message
+                        )
+                    except Exception as e:
+                        print(f"Error sending notification to {wallet}: {e}")
+                        
+        except Exception as e:
+            print(f"Error checking transactions: {e}")
 
         await asyncio.sleep(60)  # Check every minute
 
@@ -794,12 +970,9 @@ def main():
     async_thread = threading.Thread(target=run_async_tasks, daemon=True)
     async_thread.start()
 
-    # Start the Flask server in a separate thread
-    flask_thread = threading.Thread(
-        target=lambda: app.run(host='0.0.0.0', port=int(os.getenv('PORT', '8080'))),
-        daemon=True
-    )
-    flask_thread.start()
+    # Start keep_alive
+    from keep_alive import keep_alive
+    keep_alive()
 
     # Start the bot
     updater.start_polling()

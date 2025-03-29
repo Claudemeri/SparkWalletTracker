@@ -1,121 +1,132 @@
 # Solana Wallet Tracker Bot
 
-A Telegram bot for tracking Solana wallet transactions and detecting multi-buy patterns.
+A Telegram bot that tracks multi-buy and multi-sell patterns across multiple Solana wallets using the Moralis API.
 
 ## Features
 
 - Track multiple Solana wallets
-- Real-time transaction monitoring via Helius webhooks
-- Multi-buy pattern detection
-- Token tracking
-- Activity summaries
-- Customizable alerts
+- Detect multi-buy patterns (3+ wallets buying the same token in 6 hours)
+- Detect multi-sell patterns (3+ wallets selling the same token in 6 hours)
+- Real-time alerts via Telegram
+- Track specific tokens across all wallets
+- Toggle alerts on/off
+- View wallet summaries and activity
 
-## Setup
+## Prerequisites
+
+- Python 3.7+
+- Telegram Bot Token
+- Moralis API Key
+- Required Python packages
+
+## Installation
 
 1. Clone the repository:
 
 ```bash
-git clone https://github.com/Claudemeri/SparkWalletTracker.git
-cd SparkWalletTracker
+git clone https://github.com/yourusername/SolanaWalletTracker.git
+cd SolanaWalletTracker
 ```
 
-2. Install dependencies:
+2. Install required packages:
 
 ```bash
-pip install -r requirements.txt
+pip install python-telegram-bot==13.7 aiohttp python-dotenv requests
 ```
 
-3. Create a `.env` file with the following variables:
+3. Create a `.env` file in the project root with the following variables:
 
 ```env
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
-SOLANA_RPC_URL=your_solana_rpc_url
-HELIUS_WEBHOOK_SECRET=your_helius_webhook_secret
-PORT=8080  # Optional, defaults to 8080
+MORALIS_API_KEY=your_moralis_api_key
 ```
 
-4. Set up Helius webhook:
+## Usage
 
-   - Go to [Helius Dashboard](https://dev.helius.xyz/dashboard)
-   - Create a new webhook
-   - Set the webhook URL to your bot's URL + `/webhook` (e.g., `https://your-bot-url.com/webhook`)
-   - Get the webhook secret and add it to your `.env` file
-   - Configure the webhook to track transaction events
-
-5. Run the bot:
+1. Start the bot:
 
 ```bash
 python bot.py
 ```
 
-## Usage
+2. In Telegram, start a chat with your bot and use the following commands:
 
-### Basic Commands
+   - `/start` - Shows the main menu
+   - `/menu` - Shows the main menu again
+   - `/summary` - Shows a summary of tracked wallets
 
-- `/start` - Start the bot and show the main menu
-- `/menu` - Show the main menu
-- `/summary` - Show activity summary for tracked wallets
+3. Use the menu buttons to:
+   - Add wallets to track
+   - Remove tracked wallets
+   - List all tracked wallets
+   - Track specific tokens
+   - Toggle alerts on/off
 
-### Menu Options
+## Multi-Buy/Multi-Sell Detection
 
-- 📊 Summary - View transaction summaries
-- ➕ Add Wallet - Add a new wallet to track
-- ➖ Remove Wallet - Remove a tracked wallet
-- 📝 List Wallets - View all tracked wallets
-- 🔍 Track Token - Add a new token to track
-- 🔔 Toggle Alerts - Enable/disable transaction alerts
+The bot detects multi-buy and multi-sell patterns when:
 
-### Multi-Buy Detection
+- 3 or more tracked wallets buy/sell the same token
+- All transactions occur within the last 6 hours
+- For buys: `subCategory` is "newPosition"
+- For sells: `subCategory` is "sellAll"
 
-The bot automatically detects when multiple tracked wallets buy the same token within a short time period (default: 6 hours). When detected, it:
+### Alert Format
 
-1. Sends notifications to all tracked wallets
-2. Shows the total value of buys
-3. Lists all wallets that participated
-4. Offers options to track sells for the token
+Multi-Buy Alert:
 
-## Configuration
+```
+🟢 Multi Buy Alert!
 
-### Rate Limiting
+[amount of wallets that bought] wallets bought [Token Symbol] in the last 6 hours!
+Total: [total amount bought in SOL accross all wallets]
 
-The bot includes built-in rate limiting to prevent API throttling:
+[Token Address]
+```
 
-- Default delay between requests: 200ms
-- Maximum retries: 3
-- Retry delay: 1 second (exponential backoff)
+Multi-Sell Alert:
 
-### Multi-Buy Settings
+```
+🔴 Multi Sell Alert!
 
-You can adjust these settings in the `WalletTracker` class:
+[amount of wallets that sold] wallets sold [Token Symbol] in the last 6 hours!
+Total: [total amount sold in SOL accross all wallets]
 
-- `multi_buy_threshold`: Time window for multi-buy detection (default: 6 hours)
-- `min_buys_for_alert`: Minimum number of wallets that need to buy (default: 2)
+[Token Address]
+```
 
-## Security
+## Data Storage
 
-- Webhook signatures are verified using HMAC-SHA256
-- All sensitive data is stored in environment variables
-- Rate limiting prevents API abuse
-- Input validation for all user commands
+The bot stores data in three JSON files:
+
+- `wallets.json` - List of tracked wallets
+- `tracked_tokens.json` - List of tracked tokens
+- `transactions.json` - History of multi-buy/multi-sell transactions
+
+## Moralis API Integration
+
+The bot uses the Moralis API to fetch transaction data:
+
+- Endpoint: `https://solana-gateway.moralis.io/account/mainnet/{wallet_address}/swaps`
+- Checks transactions every minute
+- Filters transactions from the last 6 hours
+- Processes transaction types:
+  - `newPosition` for buys
+  - `sellAll` for sells
 
 ## Error Handling
 
-The bot includes comprehensive error handling for:
+The bot includes error handling for:
 
-- Invalid wallet addresses
-- Network issues
 - API rate limits
+- Network issues
+- Invalid wallet addresses
 - Transaction parsing errors
-- Webhook verification failures
+- Notification sending failures
 
 ## Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+Feel free to submit issues and enhancement requests!
 
 ## License
 

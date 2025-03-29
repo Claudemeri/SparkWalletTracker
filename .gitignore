@@ -23,4 +23,4 @@ tracked_tokens.json
 transactions.json
 
 # Logs
-*.log 
+*.log
