@@ -244,13 +244,21 @@ async def get_recent_transactions(wallet_address: str) -> List[Dict]:
     try:
         headers = {
             "Accept": "application/json",
-            "X-API-Key": MORALIS_API_KEY
+            "X-API-Key": MORALIS_API_KEY,
+            "Content-Type": "application/json"
         }
         
-        url = f"{MORALIS_API_URL}/{wallet_address}/swaps?order=DESC"
+        # Update the endpoint to use the correct path
+        url = f"{MORALIS_API_URL}/{wallet_address}/swaps"
+        
+        # Add query parameters
+        params = {
+            "order": "DESC",
+            "limit": 100  # Limit the number of transactions to avoid overwhelming the API
+        }
         
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers) as response:
+            async with session.get(url, headers=headers, params=params) as response:
                 if response.status == 200:
                     data = await response.json()
                     if not isinstance(data, dict):
@@ -323,6 +331,7 @@ async def get_recent_transactions(wallet_address: str) -> List[Dict]:
                     return transactions
                 else:
                     print(f"Error fetching transactions: {response.status}")
+                    print(f"Response: {await response.text()}")  # Print the error response
                     return []
     except Exception as e:
         print(f"Error in get_recent_transactions: {e}")
