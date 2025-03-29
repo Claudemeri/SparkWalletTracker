@@ -601,6 +601,12 @@ async def check_transactions():
             continue
 
         try:
+            # Skip if no wallets are being tracked
+            if not wallet_tracker.wallets:
+                logging.info("No wallets are being tracked, skipping transaction check")
+                await asyncio.sleep(60)
+                continue
+
             logging.info("Starting transaction check")
             # Get transactions for all wallets
             all_transactions = []
