@@ -8,9 +8,25 @@ from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, Callback
 import asyncio
 import aiohttp
 import threading
+import logging
+from pathlib import Path
 
 # Load environment variables
 load_dotenv()
+
+# Set up logging
+LOG_DIR = Path('logs')
+LOG_DIR.mkdir(exist_ok=True)
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(LOG_DIR / 'bot.log'),
+        logging.StreamHandler()
+    ]
+)
 
 # Store wallet data
 WALLETS_FILE = 'wallets.json'
@@ -257,20 +273,36 @@ async def get_recent_transactions(wallet_address: str) -> List[Dict]:
             "limit": 100  # Limit the number of transactions to avoid overwhelming the API
         }
         
+        logging.info(f"Making API request for wallet {wallet_address}")
+        logging.debug(f"Request URL: {url}")
+        logging.debug(f"Request params: {params}")
+        
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=headers, params=params) as response:
+                response_text = await response.text()
+                logging.info(f"API Response status: {response.status}")
+                logging.debug(f"API Response headers: {response.headers}")
+                logging.debug(f"API Response body: {response_text[:1000]}...")  # Log first 1000 chars of response
+                
                 if response.status == 200:
-                    data = await response.json()
+                    try:
+                        data = json.loads(response_text)
+                    except json.JSONDecodeError as e:
+                        logging.error(f"Failed to parse API response: {e}")
+                        return []
+                        
                     if not isinstance(data, dict):
-                        print(f"Unexpected response format: {data}")
+                        logging.error(f"Unexpected response format: {data}")
                         return []
                         
                     # Get the result array from the response
                     transactions_data = data.get('result', [])
                     if not isinstance(transactions_data, list):
-                        print(f"Unexpected result format: {transactions_data}")
+                        logging.error(f"Unexpected result format: {transactions_data}")
                         return []
                         
+                    logging.info(f"Found {len(transactions_data)} transactions for wallet {wallet_address}")
+                    
                     # Transform Moralis data to our format
                     transactions = []
                     for tx in transactions_data:
@@ -307,7 +339,7 @@ async def get_recent_transactions(wallet_address: str) -> List[Dict]:
                                     dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
                                     timestamp = int(dt.timestamp())
                                 except (ValueError, TypeError) as e:
-                                    print(f"Error parsing timestamp {timestamp_str}: {e}")
+                                    logging.error(f"Error parsing timestamp {timestamp_str}: {e}")
                                     continue
                                 
                                 transaction_data = {
@@ -325,31 +357,37 @@ async def get_recent_transactions(wallet_address: str) -> List[Dict]:
                                 }
                                 transactions.append(transaction_data)
                         except (ValueError, TypeError) as e:
-                            print(f"Error processing transaction: {e}")
+                            logging.error(f"Error processing transaction: {e}")
                             continue
                             
+                    logging.info(f"Successfully processed {len(transactions)} transactions for wallet {wallet_address}")
                     return transactions
                 else:
-                    print(f"Error fetching transactions: {response.status}")
-                    print(f"Response: {await response.text()}")  # Print the error response
+                    logging.error(f"API request failed with status {response.status}")
+                    logging.error(f"Response: {response_text}")
                     return []
     except Exception as e:
-        print(f"Error in get_recent_transactions: {e}")
+        logging.error(f"Error in get_recent_transactions: {e}", exc_info=True)
         return []
 
 async def check_transactions():
     """Check recent transactions for all tracked wallets"""
     while True:
         if not wallet_tracker.alerts_enabled:
+            logging.info("Alerts are disabled, skipping transaction check")
             await asyncio.sleep(60)
             continue
 
         try:
+            logging.info("Starting transaction check")
             # Get transactions for all wallets
             all_transactions = []
             for address in wallet_tracker.wallets:
+                logging.info(f"Checking transactions for wallet {address}")
                 transactions = await get_recent_transactions(address)
                 all_transactions.extend(transactions)
+            
+            logging.info(f"Total transactions found: {len(all_transactions)}")
             
             # Filter transactions from the last 6 hours
             cutoff_time = int((datetime.now() - timedelta(hours=6)).timestamp())
@@ -357,10 +395,12 @@ async def check_transactions():
                 tx for tx in all_transactions 
                 if tx.get('timestamp', 0) >= cutoff_time
             ]
+            logging.info(f"Recent transactions (last 6 hours): {len(recent_transactions)}")
             
             # Detect multi-buys
             multi_buy = wallet_tracker.detect_multi_buys(recent_transactions)
             if multi_buy:
+                logging.info(f"Multi-buy detected for token {multi_buy['token_symbol']}")
                 # Store the multi-buy
                 wallet_tracker.store_multi_buy(
                     multi_buy['token_address'],
@@ -380,12 +420,14 @@ async def check_transactions():
                             chat_id=wallet,
                             text=message
                         )
+                        logging.info(f"Sent multi-buy alert to wallet {wallet}")
                     except Exception as e:
-                        print(f"Error sending notification to {wallet}: {e}")
+                        logging.error(f"Error sending notification to {wallet}: {e}")
 
             # Detect multi-sells
             multi_sell = wallet_tracker.detect_multi_sells(recent_transactions)
             if multi_sell:
+                logging.info(f"Multi-sell detected for token {multi_sell['token_symbol']}")
                 # Store the multi-sell
                 wallet_tracker.store_multi_sell(
                     multi_sell['token_address'],
@@ -405,11 +447,12 @@ async def check_transactions():
                             chat_id=wallet,
                             text=message
                         )
+                        logging.info(f"Sent multi-sell alert to wallet {wallet}")
                     except Exception as e:
-                        print(f"Error sending notification to {wallet}: {e}")
+                        logging.error(f"Error sending notification to {wallet}: {e}")
                         
         except Exception as e:
-            print(f"Error checking transactions: {e}")
+            logging.error(f"Error checking transactions: {e}", exc_info=True)
 
         await asyncio.sleep(60)  # Check every minute
 
