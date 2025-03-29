@@ -70,6 +70,8 @@ class WalletTracker:
         self.transactions = {}  # Dictionary to store transaction history
         self.alerts_enabled = True  # Flag to control alert notifications
         self.last_api_calls = {}  # Dictionary to track last API call time for each wallet
+        self.min_buys_for_alert = 3  # Minimum number of buys required to trigger an alert
+        self.min_sells_for_alert = 3  # Minimum number of sells required to trigger an alert
         self.load_data()  # Load existing data from files
         logging.info("WalletTracker initialized")
 
