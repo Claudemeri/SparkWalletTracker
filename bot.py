@@ -617,7 +617,7 @@ async def get_recent_transactions(wallet_address: str) -> List[Dict]:
                                     f"🔗 Pair Address: {pair_address}\n"
                                     f"💎 Token Symbol: {token_symbol}\n"
                                     f"💰 Amount: {amount:.4f} SOL\n"
-                                    f"🕒 Block Timestamp: {dt.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                                    f"🕒 Timestamp: {dt.strftime('%Y-%m-%d %H:%M:%S')}\n"
                                     f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
                                 )
                                 
