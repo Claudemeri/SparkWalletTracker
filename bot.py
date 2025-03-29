@@ -606,6 +606,21 @@ async def get_recent_transactions(wallet_address: str) -> List[Dict]:
                                     logging.error(f"Error parsing timestamp {timestamp_str}: {e}")
                                     continue
                                 
+                                # Log transaction details
+                                transaction_logger.info(
+                                    f"Transaction Details:\n"
+                                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                                    f"👤 Wallet Name: {wallet_tracker.get_wallet_name(wallet_address)}\n"
+                                    f"🔑 Wallet Address: {wallet_address}\n"
+                                    f"📝 Transaction Type: {tx_type}\n"
+                                    f"🏷️ Sub Category: {sub_category}\n"
+                                    f"🔗 Pair Address: {pair_address}\n"
+                                    f"💎 Token Symbol: {token_symbol}\n"
+                                    f"💰 Amount: {amount:.4f} SOL\n"
+                                    f"🕒 Timestamp: {datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')}\n"
+                                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                                )
+                                
                                 transaction_data = {
                                     'wallet_address': wallet_address,
                                     'token_address': pair_address,
