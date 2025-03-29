@@ -617,7 +617,7 @@ async def get_recent_transactions(wallet_address: str) -> List[Dict]:
                                     f"🔗 Pair Address: {pair_address}\n"
                                     f"💎 Token Symbol: {token_symbol}\n"
                                     f"💰 Amount: {amount:.4f} SOL\n"
-                                    f"🕒 Timestamp: {datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')}\n"
+                                    f"🕒 Block Timestamp: {dt.strftime('%Y-%m-%d %H:%M:%S')}\n"
                                     f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
                                 )
                                 
@@ -629,6 +629,7 @@ async def get_recent_transactions(wallet_address: str) -> List[Dict]:
                                     'is_buy': is_buy,
                                     'is_sell': is_sell,
                                     'timestamp': timestamp,
+                                    'block_timestamp': timestamp_str,  # Store the original blockTimestamp
                                     'signature': tx.get('signature', ''),
                                     'price': float(tx.get('price', 0)),
                                     'transaction_type': tx_type,
