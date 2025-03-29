@@ -18,7 +18,24 @@ load_dotenv()
 LOG_DIR = Path('logs')
 LOG_DIR.mkdir(exist_ok=True)
 
-# Configure logging
+# Configure logging with multiple handlers
+def setup_logger(name, log_file, level=logging.INFO):
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    handler = logging.FileHandler(LOG_DIR / log_file)
+    handler.setFormatter(formatter)
+    
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+    logger.addHandler(handler)
+    return logger
+
+# Create loggers for different components
+wallet_logger = setup_logger('wallet', 'wallet_operations.log')
+token_logger = setup_logger('token', 'token_operations.log')
+transaction_logger = setup_logger('transaction', 'transaction_operations.log')
+api_logger = setup_logger('api', 'api_operations.log')
+
+# Configure main logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -39,6 +56,7 @@ MORALIS_API_URL = "https://solana-gateway.moralis.io/account/mainnet"
 
 class WalletTracker:
     def __init__(self):
+        wallet_logger.info("Initializing WalletTracker")
         self.wallets = self.load_wallets()
         self.tracked_tokens = self.load_tracked_tokens()
         self.transactions = self.load_transactions()
@@ -46,14 +64,20 @@ class WalletTracker:
         self.multi_buy_threshold = 6  # hours
         self.min_buys_for_alert = 3   # minimum number of wallets that need to buy
         self.min_sells_for_alert = 3  # minimum number of wallets that need to sell
+        wallet_logger.info(f"Initialized with {len(self.wallets)} wallets, {len(self.tracked_tokens)} tracked tokens")
 
     def load_wallets(self):
         try:
             if os.path.exists(WALLETS_FILE):
+                wallet_logger.info(f"Loading wallets from {WALLETS_FILE}")
                 with open(WALLETS_FILE, 'r') as f:
-                    return json.load(f)
+                    wallets = json.load(f)
+                wallet_logger.info(f"Loaded {len(wallets)} wallets")
+                return wallets
+            wallet_logger.info(f"{WALLETS_FILE} does not exist, creating new file")
             return {}
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
+            wallet_logger.error(f"Error loading wallets: {e}")
             print(f"Warning: {WALLETS_FILE} contains invalid JSON. Creating new file.")
             with open(WALLETS_FILE, 'w') as f:
                 json.dump({}, f)
@@ -62,10 +86,15 @@ class WalletTracker:
     def load_tracked_tokens(self):
         try:
             if os.path.exists(TRACKED_TOKENS_FILE):
+                token_logger.info(f"Loading tracked tokens from {TRACKED_TOKENS_FILE}")
                 with open(TRACKED_TOKENS_FILE, 'r') as f:
-                    return json.load(f)
+                    tokens = json.load(f)
+                token_logger.info(f"Loaded {len(tokens)} tracked tokens")
+                return tokens
+            token_logger.info(f"{TRACKED_TOKENS_FILE} does not exist, creating new file")
             return {}
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
+            token_logger.error(f"Error loading tracked tokens: {e}")
             print(f"Warning: {TRACKED_TOKENS_FILE} contains invalid JSON. Creating new file.")
             with open(TRACKED_TOKENS_FILE, 'w') as f:
                 json.dump({}, f)
@@ -74,60 +103,85 @@ class WalletTracker:
     def load_transactions(self):
         try:
             if os.path.exists(TRANSACTIONS_FILE):
+                transaction_logger.info(f"Loading transactions from {TRANSACTIONS_FILE}")
                 with open(TRANSACTIONS_FILE, 'r') as f:
-                    return json.load(f)
+                    transactions = json.load(f)
+                transaction_logger.info(f"Loaded transactions for {len(transactions)} tokens")
+                return transactions
+            transaction_logger.info(f"{TRANSACTIONS_FILE} does not exist, creating new file")
             return {}
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
+            transaction_logger.error(f"Error loading transactions: {e}")
             print(f"Warning: {TRANSACTIONS_FILE} contains invalid JSON. Creating new file.")
             with open(TRANSACTIONS_FILE, 'w') as f:
                 json.dump({}, f)
             return {}
 
     def save_wallets(self):
+        wallet_logger.info(f"Saving {len(self.wallets)} wallets to {WALLETS_FILE}")
         with open(WALLETS_FILE, 'w') as f:
             json.dump(self.wallets, f)
+        wallet_logger.info("Wallets saved successfully")
 
     def save_tracked_tokens(self):
+        token_logger.info(f"Saving {len(self.tracked_tokens)} tracked tokens to {TRACKED_TOKENS_FILE}")
         with open(TRACKED_TOKENS_FILE, 'w') as f:
             json.dump(self.tracked_tokens, f)
+        token_logger.info("Tracked tokens saved successfully")
 
     def save_transactions(self):
+        transaction_logger.info(f"Saving transactions for {len(self.transactions)} tokens to {TRANSACTIONS_FILE}")
         with open(TRANSACTIONS_FILE, 'w') as f:
             json.dump(self.transactions, f)
+        transaction_logger.info("Transactions saved successfully")
 
     def add_wallet(self, address, name):
+        wallet_logger.info(f"Adding wallet {name} ({address})")
         self.wallets[address] = {
             'name': name,
             'added_at': datetime.now().isoformat()
         }
         self.save_wallets()
+        wallet_logger.info(f"Wallet {name} ({address}) added successfully")
 
     def remove_wallet(self, address):
+        wallet_logger.info(f"Attempting to remove wallet {address}")
         if address in self.wallets:
+            wallet_name = self.wallets[address]['name']
             del self.wallets[address]
             self.save_wallets()
+            wallet_logger.info(f"Wallet {wallet_name} ({address}) removed successfully")
             return True
+        wallet_logger.warning(f"Wallet {address} not found")
         return False
 
     def get_wallet_name(self, address):
-        return self.wallets.get(address, {}).get('name', address)
+        wallet_logger.debug(f"Getting name for wallet {address}")
+        name = self.wallets.get(address, {}).get('name', address)
+        wallet_logger.debug(f"Wallet {address} name: {name}")
+        return name
 
     def add_tracked_token(self, token_address, wallets):
+        token_logger.info(f"Adding tracked token {token_address} for {len(wallets)} wallets")
         self.tracked_tokens[token_address] = {
             'wallets': wallets,
             'added_at': datetime.now().isoformat()
         }
         self.save_tracked_tokens()
+        token_logger.info(f"Token {token_address} added successfully")
 
     def remove_tracked_token(self, token_address):
+        token_logger.info(f"Attempting to remove tracked token {token_address}")
         if token_address in self.tracked_tokens:
             del self.tracked_tokens[token_address]
             self.save_tracked_tokens()
+            token_logger.info(f"Token {token_address} removed successfully")
             return True
+        token_logger.warning(f"Token {token_address} not found")
         return False
 
     def detect_multi_buys(self, transactions: List[Dict]) -> Optional[Dict]:
-        """Detect multi-buys from a list of transactions"""
+        transaction_logger.info(f"Detecting multi-buys from {len(transactions)} transactions")
         # Group transactions by token
         token_buys = {}
         
@@ -154,8 +208,10 @@ class WalletTracker:
         # Check for multi-buys
         for token_address, data in token_buys.items():
             if len(data['wallets']) >= self.min_buys_for_alert:
+                transaction_logger.info(f"Found potential multi-buy for token {data['token_symbol']} ({token_address})")
                 # Check if this multi-buy was already alerted
                 if not self.is_multi_buy_already_alerted(token_address, data['transactions']):
+                    transaction_logger.info(f"New multi-buy detected: {len(data['wallets'])} wallets bought {data['token_symbol']}")
                     return {
                         'token_address': token_address,
                         'token_symbol': data['token_symbol'],
@@ -163,10 +219,13 @@ class WalletTracker:
                         'total_amount': data['total_amount'],
                         'transactions': data['transactions']
                     }
+                else:
+                    transaction_logger.info(f"Multi-buy already alerted for token {data['token_symbol']}")
+        transaction_logger.info("No new multi-buys detected")
         return None
 
     def detect_multi_sells(self, transactions: List[Dict]) -> Optional[Dict]:
-        """Detect multi-sells from a list of transactions"""
+        transaction_logger.info(f"Detecting multi-sells from {len(transactions)} transactions")
         # Group transactions by token
         token_sells = {}
         
@@ -193,8 +252,10 @@ class WalletTracker:
         # Check for multi-sells
         for token_address, data in token_sells.items():
             if len(data['wallets']) >= self.min_sells_for_alert:
+                transaction_logger.info(f"Found potential multi-sell for token {data['token_symbol']} ({token_address})")
                 # Check if this multi-sell was already alerted
                 if not self.is_multi_sell_already_alerted(token_address, data['transactions']):
+                    transaction_logger.info(f"New multi-sell detected: {len(data['wallets'])} wallets sold {data['token_symbol']}")
                     return {
                         'token_address': token_address,
                         'token_symbol': data['token_symbol'],
@@ -202,11 +263,15 @@ class WalletTracker:
                         'total_amount': data['total_amount'],
                         'transactions': data['transactions']
                     }
+                else:
+                    transaction_logger.info(f"Multi-sell already alerted for token {data['token_symbol']}")
+        transaction_logger.info("No new multi-sells detected")
         return None
 
     def is_multi_buy_already_alerted(self, token_address: str, transactions: List[Dict]) -> bool:
-        """Check if this multi-buy was already alerted"""
+        transaction_logger.debug(f"Checking if multi-buy for token {token_address} was already alerted")
         if token_address not in self.transactions:
+            transaction_logger.debug(f"No previous transactions found for token {token_address}")
             return False
             
         # Get the signatures of the current transactions
@@ -215,13 +280,16 @@ class WalletTracker:
         # Check if any of these transactions were already stored
         for stored_tx in self.transactions[token_address]:
             if stored_tx.get('signature') in current_signatures:
+                transaction_logger.debug(f"Found matching signature for token {token_address}")
                 return True
                 
+        transaction_logger.debug(f"No matching signatures found for token {token_address}")
         return False
 
     def is_multi_sell_already_alerted(self, token_address: str, transactions: List[Dict]) -> bool:
-        """Check if this multi-sell was already alerted"""
+        transaction_logger.debug(f"Checking if multi-sell for token {token_address} was already alerted")
         if token_address not in self.transactions:
+            transaction_logger.debug(f"No previous transactions found for token {token_address}")
             return False
             
         # Get the signatures of the current transactions
@@ -230,27 +298,31 @@ class WalletTracker:
         # Check if any of these transactions were already stored
         for stored_tx in self.transactions[token_address]:
             if stored_tx.get('signature') in current_signatures:
+                transaction_logger.debug(f"Found matching signature for token {token_address}")
                 return True
                 
+        transaction_logger.debug(f"No matching signatures found for token {token_address}")
         return False
 
     def store_multi_buy(self, token_address: str, transactions: List[Dict]):
-        """Store multi-buy transactions"""
+        transaction_logger.info(f"Storing multi-buy for token {token_address}")
         if token_address not in self.transactions:
             self.transactions[token_address] = []
             
         # Add new transactions
         self.transactions[token_address].extend(transactions)
         self.save_transactions()
+        transaction_logger.info(f"Stored {len(transactions)} transactions for token {token_address}")
 
     def store_multi_sell(self, token_address: str, transactions: List[Dict]):
-        """Store multi-sell transactions"""
+        transaction_logger.info(f"Storing multi-sell for token {token_address}")
         if token_address not in self.transactions:
             self.transactions[token_address] = []
             
         # Add new transactions
         self.transactions[token_address].extend(transactions)
         self.save_transactions()
+        transaction_logger.info(f"Stored {len(transactions)} transactions for token {token_address}")
 
 # Initialize wallet tracker
 wallet_tracker = WalletTracker()
