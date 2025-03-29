@@ -911,12 +911,26 @@ def button_handler(update, context: CallbackContext):
         query.message.edit_text('Select a wallet to remove:', reply_markup=reply_markup)
     elif query.data == 'list_wallets':
         if not wallet_tracker.wallets:
-            text = 'No wallets are being tracked.'
+            text = '📭 No wallets are being tracked.'
         else:
-            text = 'Tracked Wallets:\n' + '\n'.join([f"{data['name']} ({addr})" for addr, data in wallet_tracker.wallets.items()])
+            text = '📋 *Tracked Wallets*\n\n'
+            for addr, data in wallet_tracker.wallets.items():
+                # Add a separator line between wallets
+                text += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                # Add wallet name and address with emojis
+                text += f"👤 *Name:* {data['name']}\n"
+                text += f"🔑 *Address:* `{addr}`\n"
+                # Add when the wallet was added
+                added_at = datetime.fromisoformat(data['added_at'])
+                text += f"📅 *Added:* {added_at.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                text += "\n"  # Add extra line for spacing
+            
+            # Add a summary at the top
+            text = f"📊 *Total Wallets:* {len(wallet_tracker.wallets)}\n\n" + text
+            
         keyboard = [[InlineKeyboardButton("⬅️ Back to Menu", callback_data='show_menu')]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        query.message.edit_text(text, reply_markup=reply_markup)
+        query.message.edit_text(text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
     elif query.data == 'toggle_alerts':
         wallet_tracker.alerts_enabled = not wallet_tracker.alerts_enabled
         status = 'enabled' if wallet_tracker.alerts_enabled else 'disabled'
