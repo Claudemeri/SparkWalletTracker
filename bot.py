@@ -794,14 +794,19 @@ async def check_transactions():
 def start(update, context: CallbackContext):
     """
     Handle the /start command.
-    Displays the main menu with available options.
+    Displays the main menu with available options in a 3-column layout.
     """
     keyboard = [
-        [InlineKeyboardButton("➕ Add Wallet", callback_data='add_wallet')],
-        [InlineKeyboardButton("➖ Remove Wallet", callback_data='remove_wallet')],
-        [InlineKeyboardButton("📝 List Wallets", callback_data='list_wallets')],
-        [InlineKeyboardButton("🔍 Track Token", callback_data='track_token')],
-        [InlineKeyboardButton("🔔 Toggle Alerts", callback_data='toggle_alerts')]
+        [
+            InlineKeyboardButton("➕ Add", callback_data='add_wallet'),
+            InlineKeyboardButton("➖ Remove", callback_data='remove_wallet'),
+            InlineKeyboardButton("✏️ Modify", callback_data='modify_wallet')
+        ],
+        [
+            InlineKeyboardButton("📝 List", callback_data='list_wallets'),
+            InlineKeyboardButton("🔍 Track", callback_data='track_token'),
+            InlineKeyboardButton("🔔 Alerts", callback_data='toggle_alerts')
+        ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -812,16 +817,20 @@ def start(update, context: CallbackContext):
 
 def show_menu(update, context: CallbackContext):
     """
-    Display the main menu with available options.
+    Display the main menu with available options in a 3-column layout.
     Can be called from both message and callback query handlers.
     """
     keyboard = [
-        [InlineKeyboardButton("➕ Add Wallet", callback_data='add_wallet')],
-        [InlineKeyboardButton("➖ Remove Wallet", callback_data='remove_wallet')],
-        [InlineKeyboardButton("✏️ Modify Wallet", callback_data='modify_wallet')],
-        [InlineKeyboardButton("📝 List Wallets", callback_data='list_wallets')],
-        [InlineKeyboardButton("🔍 Track Token", callback_data='track_token')],
-        [InlineKeyboardButton("🔔 Toggle Alerts", callback_data='toggle_alerts')]
+        [
+            InlineKeyboardButton("➕ Add", callback_data='add_wallet'),
+            InlineKeyboardButton("➖ Remove", callback_data='remove_wallet'),
+            InlineKeyboardButton("✏️ Modify", callback_data='modify_wallet')
+        ],
+        [
+            InlineKeyboardButton("📝 List", callback_data='list_wallets'),
+            InlineKeyboardButton("🔍 Track", callback_data='track_token'),
+            InlineKeyboardButton("🔔 Alerts", callback_data='toggle_alerts')
+        ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
