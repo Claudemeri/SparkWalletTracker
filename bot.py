@@ -168,13 +168,27 @@ class WalletTracker:
             
         Logs the addition and saves the updated data.
         """
-        wallet_logger.info(f"Adding wallet {name} ({address})")
-        self.wallets[address] = {
-            'name': name,
-            'added_at': datetime.now().isoformat()
-        }
-        self.save_data()
-        wallet_logger.info(f"Wallet {name} ({address}) added successfully")
+        try:
+            # Create data directory if it doesn't exist
+            data_dir = Path("data")
+            data_dir.mkdir(exist_ok=True)
+            
+            # Create tracked_wallets.json if it doesn't exist
+            wallets_file = data_dir / "tracked_wallets.json"
+            if not wallets_file.exists():
+                wallets_file.write_text("{}")
+                logging.info("Created new tracked_wallets.json file")
+            
+            wallet_logger.info(f"Adding wallet {name} ({address})")
+            self.wallets[address] = {
+                'name': name,
+                'added_at': datetime.now().isoformat()
+            }
+            self.save_data()
+            wallet_logger.info(f"Wallet {name} ({address}) added successfully")
+        except Exception as e:
+            wallet_logger.error(f"Error adding wallet {name} ({address}): {e}")
+            raise
 
     def remove_wallet(self, address):
         """
