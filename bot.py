@@ -253,13 +253,19 @@ async def get_recent_transactions(wallet_address: str) -> List[Dict]:
             async with session.get(url, headers=headers) as response:
                 if response.status == 200:
                     data = await response.json()
-                    if not isinstance(data, list):
+                    if not isinstance(data, dict):
                         print(f"Unexpected response format: {data}")
+                        return []
+                        
+                    # Get the result array from the response
+                    transactions_data = data.get('result', [])
+                    if not isinstance(transactions_data, list):
+                        print(f"Unexpected result format: {transactions_data}")
                         return []
                         
                     # Transform Moralis data to our format
                     transactions = []
-                    for tx in data:
+                    for tx in transactions_data:
                         if not isinstance(tx, dict):
                             continue
                             
