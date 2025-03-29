@@ -69,6 +69,7 @@ class WalletTracker:
         self.tracked_tokens = {}  # Dictionary to store tracked token information
         self.transactions = {}  # Dictionary to store transaction history
         self.alerts_enabled = True  # Flag to control alert notifications
+        self.last_api_calls = {}  # Dictionary to track last API call time for each wallet
         self.load_data()  # Load existing data from files
         logging.info("WalletTracker initialized")
 
@@ -474,6 +475,35 @@ class WalletTracker:
         self.save_data()
         transaction_logger.info(f"Stored {len(transactions)} transactions for token {token_address}")
 
+    def can_call_api(self, wallet_address: str) -> bool:
+        """
+        Check if we can make an API call for a specific wallet.
+        
+        Args:
+            wallet_address (str): The wallet address to check
+            
+        Returns:
+            bool: True if we can make an API call, False if we need to wait
+        """
+        current_time = datetime.now()
+        last_call = self.last_api_calls.get(wallet_address)
+        
+        if last_call is None:
+            return True
+            
+        # Check if at least 60 seconds have passed since last call
+        time_diff = (current_time - last_call).total_seconds()
+        return time_diff >= 60
+
+    def update_last_api_call(self, wallet_address: str):
+        """
+        Update the last API call timestamp for a wallet.
+        
+        Args:
+            wallet_address (str): The wallet address to update
+        """
+        self.last_api_calls[wallet_address] = datetime.now()
+
 # Initialize wallet tracker
 wallet_tracker = WalletTracker()
 
@@ -625,10 +655,23 @@ async def check_transactions():
             # Get transactions for all wallets
             all_transactions = []
             for address in wallet_tracker.wallets:
+                # Check if we can make an API call for this wallet
+                if not wallet_tracker.can_call_api(address):
+                    logging.info(f"Skipping API call for wallet {address} - too soon since last call")
+                    continue
+                    
                 logging.info(f"Checking transactions for wallet {address}")
                 transactions = await get_recent_transactions(address)
+                if transactions:  # Only update timestamp if we got transactions
+                    wallet_tracker.update_last_api_call(address)
                 all_transactions.extend(transactions)
             
+            # If no transactions were fetched (all wallets were skipped), wait before next check
+            if not all_transactions:
+                logging.info("No transactions fetched in this cycle, waiting before next check")
+                await asyncio.sleep(60)
+                continue
+                
             logging.info(f"Total transactions found: {len(all_transactions)}")
             
             # Filter transactions from the last 6 hours
