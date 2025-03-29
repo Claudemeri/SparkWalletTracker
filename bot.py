@@ -56,7 +56,7 @@ MORALIS_API_URL = "https://solana-gateway.moralis.io/account/mainnet"
 
 class WalletTracker:
     def __init__(self):
-        self.wallets = set()
+        self.wallets = {}  # Changed from set to dict to store name and address
         self.tracked_tokens = {}
         self.transactions = {}
         self.alerts_enabled = True
@@ -77,7 +77,7 @@ class WalletTracker:
             
             # Create files if they don't exist
             if not wallets_file.exists():
-                wallets_file.write_text("[]")
+                wallets_file.write_text("{}")
             if not tokens_file.exists():
                 tokens_file.write_text("{}")
             if not transactions_file.exists():
@@ -86,11 +86,11 @@ class WalletTracker:
             # Load wallets
             try:
                 with open(wallets_file, 'r') as f:
-                    self.wallets = set(json.load(f))
+                    self.wallets = json.load(f)
                 logging.info(f"Loaded {len(self.wallets)} wallets")
             except Exception as e:
                 logging.error(f"Error loading wallets: {e}")
-                self.wallets = set()
+                self.wallets = {}
             
             # Load tracked tokens
             try:
@@ -112,7 +112,7 @@ class WalletTracker:
                 
         except Exception as e:
             logging.error(f"Error in load_data: {e}")
-            self.wallets = set()
+            self.wallets = {}
             self.tracked_tokens = {}
             self.transactions = {}
 
@@ -125,7 +125,7 @@ class WalletTracker:
             
             # Save wallets
             with open(data_dir / "tracked_wallets.json", 'w') as f:
-                json.dump(list(self.wallets), f)
+                json.dump(self.wallets, f)
             logging.info(f"Saved {len(self.wallets)} wallets")
             
             # Save tracked tokens
@@ -143,23 +143,27 @@ class WalletTracker:
 
     def add_wallet(self, address, name):
         wallet_logger.info(f"Adding wallet {name} ({address})")
-        self.wallets.add(address)
+        self.wallets[address] = {
+            'name': name,
+            'added_at': datetime.now().isoformat()
+        }
         self.save_data()
         wallet_logger.info(f"Wallet {name} ({address}) added successfully")
 
     def remove_wallet(self, address):
         wallet_logger.info(f"Attempting to remove wallet {address}")
         if address in self.wallets:
-            self.wallets.remove(address)
+            wallet_name = self.wallets[address]['name']
+            del self.wallets[address]
             self.save_data()
-            wallet_logger.info(f"Wallet {address} removed successfully")
+            wallet_logger.info(f"Wallet {wallet_name} ({address}) removed successfully")
             return True
         wallet_logger.warning(f"Wallet {address} not found")
         return False
 
     def get_wallet_name(self, address):
         wallet_logger.debug(f"Getting name for wallet {address}")
-        name = self.wallets.get(address, address)
+        name = self.wallets.get(address, {}).get('name', address)
         wallet_logger.debug(f"Wallet {address} name: {name}")
         return name
 
@@ -638,8 +642,8 @@ def button_handler(update, context: CallbackContext):
             return
         
         keyboard = []
-        for addr in wallet_tracker.wallets:
-            keyboard.append([InlineKeyboardButton(addr, callback_data=f'remove_{addr}')])
+        for addr, data in wallet_tracker.wallets.items():
+            keyboard.append([InlineKeyboardButton(data['name'], callback_data=f'remove_{addr}')])
         keyboard.append([InlineKeyboardButton("⬅️ Back to Menu", callback_data='show_menu')])
         reply_markup = InlineKeyboardMarkup(keyboard)
         query.message.edit_text('Select a wallet to remove:', reply_markup=reply_markup)
@@ -647,7 +651,7 @@ def button_handler(update, context: CallbackContext):
         if not wallet_tracker.wallets:
             text = 'No wallets are being tracked.'
         else:
-            text = 'Tracked Wallets:\n' + '\n'.join(wallet_tracker.wallets)
+            text = 'Tracked Wallets:\n' + '\n'.join([f"{data['name']} ({addr})" for addr, data in wallet_tracker.wallets.items()])
         keyboard = [[InlineKeyboardButton("⬅️ Back to Menu", callback_data='show_menu')]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         query.message.edit_text(text, reply_markup=reply_markup)
@@ -660,7 +664,7 @@ def button_handler(update, context: CallbackContext):
     elif query.data.startswith('remove_'):
         address = query.data.replace('remove_', '')
         if wallet_tracker.remove_wallet(address):
-            text = f'Removed wallet {address}'
+            text = f'Removed wallet {wallet_tracker.get_wallet_name(address)} ({address})'
         else:
             text = 'Failed to remove wallet'
         keyboard = [[InlineKeyboardButton("⬅️ Back to Menu", callback_data='show_menu')]]
@@ -694,7 +698,7 @@ def handle_message(update, context: CallbackContext):
         context.user_data.clear()
     elif context.user_data.get('state') == 'waiting_for_token_address':
         token_address = text
-        wallet_tracker.add_tracked_token(token_address, list(wallet_tracker.wallets))
+        wallet_tracker.add_tracked_token(token_address, list(wallet_tracker.wallets.keys()))
         keyboard = [[InlineKeyboardButton("⬅️ Back to Menu", callback_data='show_menu')]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         update.message.reply_text(
