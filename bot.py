@@ -253,48 +253,60 @@ async def get_recent_transactions(wallet_address: str) -> List[Dict]:
             async with session.get(url, headers=headers) as response:
                 if response.status == 200:
                     data = await response.json()
+                    if not isinstance(data, list):
+                        print(f"Unexpected response format: {data}")
+                        return []
+                        
                     # Transform Moralis data to our format
                     transactions = []
                     for tx in data:
-                        # Get transaction type and subcategory
-                        tx_type = tx.get('transactionType', '')
-                        sub_category = tx.get('subCategory', '')
-                        
-                        # Get wallet and token addresses
-                        wallet_address = tx.get('walletAddress', '')
-                        pair_address = tx.get('pairAddress', '')
-                        
-                        # Get transaction details
-                        bought = tx.get('bought', {})
-                        sold = tx.get('sold', {})
-                        
-                        # Determine if it's a buy or sell
-                        is_buy = sub_category == 'newPosition'
-                        is_sell = sub_category == 'sellAll'
-                        
-                        # Only include transactions we want to track
-                        if is_buy or is_sell:
-                            # Get the correct token symbol and amount based on transaction type
-                            token_symbol = bought.get('symbol', '') if is_buy else sold.get('symbol', '')
-                            amount = float(bought.get('amount', 0)) if is_buy else float(sold.get('amount', 0))
+                        if not isinstance(tx, dict):
+                            continue
                             
-                            # Get timestamp in seconds (Moralis returns milliseconds)
-                            timestamp = int(tx.get('blockTimestamp', 0)) // 1000
+                        try:
+                            # Get transaction type and subcategory
+                            tx_type = tx.get('transactionType', '')
+                            sub_category = tx.get('subCategory', '')
                             
-                            transaction_data = {
-                                'wallet_address': wallet_address,
-                                'token_address': pair_address,
-                                'token_symbol': token_symbol,
-                                'amount': amount,
-                                'is_buy': is_buy,
-                                'is_sell': is_sell,
-                                'timestamp': timestamp,
-                                'signature': tx.get('signature', ''),
-                                'price': float(tx.get('price', 0)),
-                                'transaction_type': tx_type,
-                                'sub_category': sub_category
-                            }
-                            transactions.append(transaction_data)
+                            # Get wallet and token addresses
+                            wallet_address = tx.get('walletAddress', '')
+                            pair_address = tx.get('pairAddress', '')
+                            
+                            # Get transaction details
+                            bought = tx.get('bought', {})
+                            sold = tx.get('sold', {})
+                            
+                            # Determine if it's a buy or sell
+                            is_buy = sub_category == 'newPosition'
+                            is_sell = sub_category == 'sellAll'
+                            
+                            # Only include transactions we want to track
+                            if is_buy or is_sell:
+                                # Get the correct token symbol and amount based on transaction type
+                                token_symbol = bought.get('symbol', '') if is_buy else sold.get('symbol', '')
+                                amount = float(bought.get('amount', 0)) if is_buy else float(sold.get('amount', 0))
+                                
+                                # Get timestamp in seconds (Moralis returns milliseconds)
+                                timestamp = int(tx.get('blockTimestamp', 0)) // 1000
+                                
+                                transaction_data = {
+                                    'wallet_address': wallet_address,
+                                    'token_address': pair_address,
+                                    'token_symbol': token_symbol,
+                                    'amount': amount,
+                                    'is_buy': is_buy,
+                                    'is_sell': is_sell,
+                                    'timestamp': timestamp,
+                                    'signature': tx.get('signature', ''),
+                                    'price': float(tx.get('price', 0)),
+                                    'transaction_type': tx_type,
+                                    'sub_category': sub_category
+                                }
+                                transactions.append(transaction_data)
+                        except (ValueError, TypeError) as e:
+                            print(f"Error processing transaction: {e}")
+                            continue
+                            
                     return transactions
                 else:
                     print(f"Error fetching transactions: {response.status}")
