@@ -816,6 +816,7 @@ def show_menu(update, context: CallbackContext):
     keyboard = [
         [InlineKeyboardButton("➕ Add Wallet", callback_data='add_wallet')],
         [InlineKeyboardButton("➖ Remove Wallet", callback_data='remove_wallet')],
+        [InlineKeyboardButton("✏️ Modify Wallet", callback_data='modify_wallet')],
         [InlineKeyboardButton("📝 List Wallets", callback_data='list_wallets')],
         [InlineKeyboardButton("🔍 Track Token", callback_data='track_token')],
         [InlineKeyboardButton("🔔 Toggle Alerts", callback_data='toggle_alerts')]
@@ -843,6 +844,48 @@ def button_handler(update, context: CallbackContext):
         reply_markup = InlineKeyboardMarkup(keyboard)
         query.message.edit_text(
             'Please send me the wallet address you want to track.',
+            reply_markup=reply_markup
+        )
+    elif query.data == 'modify_wallet':
+        if not wallet_tracker.wallets:
+            keyboard = [[InlineKeyboardButton("⬅️ Back to Menu", callback_data='show_menu')]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            query.message.edit_text('No wallets are being tracked.', reply_markup=reply_markup)
+            return
+        
+        keyboard = []
+        for addr, data in wallet_tracker.wallets.items():
+            keyboard.append([InlineKeyboardButton(data['name'], callback_data=f'modify_{addr}')])
+        keyboard.append([InlineKeyboardButton("⬅️ Back to Menu", callback_data='show_menu')])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        query.message.edit_text('Select a wallet to modify:', reply_markup=reply_markup)
+    elif query.data.startswith('modify_'):
+        address = query.data.replace('modify_', '')
+        context.user_data['modify_address'] = address
+        keyboard = [
+            [InlineKeyboardButton("✏️ Change Name", callback_data='change_name')],
+            [InlineKeyboardButton("🔄 Change Address", callback_data='change_address')],
+            [InlineKeyboardButton("⬅️ Back to Menu", callback_data='show_menu')]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        query.message.edit_text(
+            f'What would you like to modify for {wallet_tracker.get_wallet_name(address)}?',
+            reply_markup=reply_markup
+        )
+    elif query.data == 'change_name':
+        context.user_data['state'] = 'waiting_for_new_name'
+        keyboard = [[InlineKeyboardButton("⬅️ Back to Menu", callback_data='show_menu')]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        query.message.edit_text(
+            'Please send me the new name for this wallet.',
+            reply_markup=reply_markup
+        )
+    elif query.data == 'change_address':
+        context.user_data['state'] = 'waiting_for_new_address'
+        keyboard = [[InlineKeyboardButton("⬅️ Back to Menu", callback_data='show_menu')]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        query.message.edit_text(
+            'Please send me the new address for this wallet.',
             reply_markup=reply_markup
         )
     elif query.data == 'track_token':
@@ -926,6 +969,38 @@ def handle_message(update, context: CallbackContext):
         reply_markup = InlineKeyboardMarkup(keyboard)
         update.message.reply_text(
             f'Now tracking token {token_address} for all wallets',
+            reply_markup=reply_markup
+        )
+        context.user_data.clear()
+    elif context.user_data.get('state') == 'waiting_for_new_name':
+        old_address = context.user_data['modify_address']
+        old_name = wallet_tracker.get_wallet_name(old_address)
+        new_name = text
+        
+        # Update the wallet name
+        wallet_tracker.wallets[old_address]['name'] = new_name
+        wallet_tracker.save_data()
+        
+        keyboard = [[InlineKeyboardButton("⬅️ Back to Menu", callback_data='show_menu')]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        update.message.reply_text(
+            f'Updated wallet name from {old_name} to {new_name}',
+            reply_markup=reply_markup
+        )
+        context.user_data.clear()
+    elif context.user_data.get('state') == 'waiting_for_new_address':
+        old_address = context.user_data['modify_address']
+        old_name = wallet_tracker.get_wallet_name(old_address)
+        new_address = text
+        
+        # Update the wallet address
+        wallet_tracker.wallets[new_address] = wallet_tracker.wallets.pop(old_address)
+        wallet_tracker.save_data()
+        
+        keyboard = [[InlineKeyboardButton("⬅️ Back to Menu", callback_data='show_menu')]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        update.message.reply_text(
+            f'Updated wallet address for {old_name} from {old_address} to {new_address}',
             reply_markup=reply_markup
         )
         context.user_data.clear()
