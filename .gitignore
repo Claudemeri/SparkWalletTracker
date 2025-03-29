@@ -22,5 +22,8 @@ wallets.json
 tracked_tokens.json
 transactions.json
 
+# Dev specific
+example_response.json
+
 # Logs
 *.log

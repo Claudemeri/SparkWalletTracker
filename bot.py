@@ -467,7 +467,55 @@ async def check_transactions():
                 tx for tx in all_transactions 
                 if tx.get('timestamp', 0) >= cutoff_time
             ]
+            
+            # Enhanced logging for recent transactions
             logging.info(f"Recent transactions (last 6 hours): {len(recent_transactions)}")
+            if recent_transactions:
+                # Group transactions by type (buy/sell)
+                buys = [tx for tx in recent_transactions if tx.get('is_buy')]
+                sells = [tx for tx in recent_transactions if tx.get('is_sell')]
+                
+                # Group transactions by token
+                token_transactions = {}
+                for tx in recent_transactions:
+                    token = tx.get('token_symbol', 'Unknown')
+                    if token not in token_transactions:
+                        token_transactions[token] = {'buys': 0, 'sells': 0, 'total_buy_amount': 0, 'total_sell_amount': 0}
+                    if tx.get('is_buy'):
+                        token_transactions[token]['buys'] += 1
+                        token_transactions[token]['total_buy_amount'] += tx.get('amount', 0)
+                    else:
+                        token_transactions[token]['sells'] += 1
+                        token_transactions[token]['total_sell_amount'] += tx.get('amount', 0)
+                
+                # Log detailed transaction summary
+                logging.info("Transaction Summary:")
+                logging.info(f"- Total Buys: {len(buys)}")
+                logging.info(f"- Total Sells: {len(sells)}")
+                logging.info("\nPer Token Summary:")
+                for token, data in token_transactions.items():
+                    logging.info(f"\nToken: {token}")
+                    logging.info(f"- Buys: {data['buys']}")
+                    logging.info(f"- Sells: {data['sells']}")
+                    logging.info(f"- Total Buy Amount: {data['total_buy_amount']:.2f} SOL")
+                    logging.info(f"- Total Sell Amount: {data['total_sell_amount']:.2f} SOL")
+                
+                # Log unique wallets involved
+                unique_wallets = set(tx.get('wallet_address') for tx in recent_transactions)
+                logging.info(f"\nUnique Wallets Involved: {len(unique_wallets)}")
+                
+                # Log transaction timestamps
+                timestamps = [tx.get('timestamp', 0) for tx in recent_transactions]
+                if timestamps:
+                    latest = max(timestamps)
+                    earliest = min(timestamps)
+                    latest_time = datetime.fromtimestamp(latest).strftime('%Y-%m-%d %H:%M:%S')
+                    earliest_time = datetime.fromtimestamp(earliest).strftime('%Y-%m-%d %H:%M:%S')
+                    logging.info(f"\nTime Range:")
+                    logging.info(f"- Latest Transaction: {latest_time}")
+                    logging.info(f"- Earliest Transaction: {earliest_time}")
+            else:
+                logging.info("No recent transactions found in the last 6 hours")
             
             # Detect multi-buys
             multi_buy = wallet_tracker.detect_multi_buys(recent_transactions)
